@@ -60,8 +60,10 @@ WallpaperItem {
         z: 1
 
         onStatusChanged: {
-            if (status === Image.Error) {
-                console.warn("[9to5-wallpaper] Primary image failed to load:", source);
+            if (status === Image.Ready) {
+                root.logMessage("INFO", "Primary image loaded successfully: " + source);
+            } else if (status === Image.Error) {
+                root.logMessage("ERROR", "Primary image failed to load: " + source);
             }
         }
     }
@@ -77,10 +79,10 @@ WallpaperItem {
         z: 2
 
         onStatusChanged: {
-            if (status === Image.Ready && opacityAnimator.running) {
-                // Secondary image ready, crossfade proceeds smoothly
+            if (status === Image.Ready) {
+                root.logMessage("INFO", "Secondary image ready for crossfade: " + source);
             } else if (status === Image.Error) {
-                console.warn("[9to5-wallpaper] Secondary image failed to load:", source);
+                root.logMessage("ERROR", "Secondary image failed to load: " + source);
                 opacityAnimator.stop();
                 secondaryImage.opacity = 0.0;
                 secondaryImage.source = "";
@@ -200,6 +202,11 @@ WallpaperItem {
     // Core Logic Functions
     // -----------------------------------------------------------------------
 
+    function logMessage(level, msg) {
+        console.log("[9to5-wallpaper] [" + level + "] " + msg);
+        commandRunner.exec(`python3 "${root.helperScript}" log --level "${level}" --source "Runtime" --message "${msg.replace(/"/g, '\\"')}"`);
+    }
+
     function timeToMinutes(timeStr) {
         if (!timeStr) return 0;
         var parts = timeStr.split(":");
@@ -210,34 +217,37 @@ WallpaperItem {
 
     function reloadProfile() {
         var profileId = root.cfgActiveProfile;
-        var profilePath = root.profilesDir + "/" + profileId + ".json";
         root.currentSlot = null;
         root.currentImagePath = "";
 
-        console.log("[9to5-wallpaper] Reloading profile:", profileId, "from", profilePath);
-        commandRunner.exec(`cat "${profilePath}"`, (result) => {
+        root.logMessage("INFO", "reloadProfile() requested for profile: " + profileId);
+        commandRunner.exec(`python3 "${root.helperScript}" get-profile "${profileId}"`, (result) => {
             if (result.exitCode === 0 && result.stdout.trim().length > 0) {
                 try {
-                    root.activeProfile = JSON.parse(result.stdout);
-                    console.log("[9to5-wallpaper] Successfully loaded active profile:", root.activeProfile.id, "('" + root.activeProfile.name + "') with", root.activeProfile.slots.length, "slots");
-                    root.updateScheduledSlot(false);
-                    return;
+                    var resp = JSON.parse(result.stdout);
+                    if (resp.status === "success" && resp.data) {
+                        root.activeProfile = resp.data;
+                        root.logMessage("INFO", "Active profile loaded successfully: " + root.activeProfile.id + " ('" + root.activeProfile.name + "') with " + (root.activeProfile.slots ? root.activeProfile.slots.length : 0) + " slots");
+                        root.updateScheduledSlot(false);
+                        return;
+                    }
                 } catch (e) {
-                    console.warn("[9to5-wallpaper] Failed to parse profile JSON:", e);
+                    root.logMessage("WARN", "Failed to parse get-profile JSON: " + e);
                 }
             }
 
             // Fallback to bootstrap defaults
-            console.log("[9to5-wallpaper] Active profile unreadable or missing, triggering init-defaults...");
+            root.logMessage("WARN", "Profile '" + profileId + "' unavailable, initializing defaults...");
             commandRunner.exec(`python3 "${root.helperScript}" init-defaults`, (initRes) => {
                 try {
                     var res = JSON.parse(initRes.stdout);
-                    if (res.status === "success") {
+                    if (res.status === "success" && res.data && res.data.profile) {
                         root.activeProfile = res.data.profile;
+                        root.logMessage("INFO", "Default profile initialized with " + (root.activeProfile.slots ? root.activeProfile.slots.length : 0) + " slots");
                         root.updateScheduledSlot(false);
                     }
                 } catch (err) {
-                    console.error("[9to5-wallpaper] Failed to initialize default profile:", err);
+                    root.logMessage("ERROR", "Failed to initialize default profile: " + err);
                 }
             });
         });

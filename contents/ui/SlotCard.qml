@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
 Rectangle {
-    id: root
+    id: cardRoot
 
     property int slotIndex: 0
     property int totalSlots: 1
@@ -33,11 +33,11 @@ Rectangle {
 
     // Parse time into hours and minutes
     readonly property int currentHour: {
-        var p = (root.time || "12:00").split(":");
+        var p = (cardRoot.time || "12:00").split(":");
         return parseInt(p[0], 10) || 0;
     }
     readonly property int currentMinute: {
-        var p = (root.time || "12:00").split(":");
+        var p = (cardRoot.time || "12:00").split(":");
         return parseInt(p[1], 10) || 0;
     }
 
@@ -60,10 +60,10 @@ Rectangle {
                     rawStr = rawStr.substring(7);
                 }
                 var cleanPath = decodeURIComponent(rawStr);
-                root.imageAssigned(root.slotIndex, cleanPath, cleanPath);
+                cardRoot.imageAssigned(cardRoot.slotIndex, cleanPath, cleanPath);
                 drop.accept();
             } else if (drop.source && drop.source.imagePath) {
-                root.imageAssigned(root.slotIndex, drop.source.imagePath, drop.source.thumbPath || drop.source.imagePath);
+                cardRoot.imageAssigned(cardRoot.slotIndex, drop.source.imagePath, drop.source.thumbPath || drop.source.imagePath);
                 drop.accept();
             }
         }
@@ -82,14 +82,14 @@ Rectangle {
             QQC2.ToolButton {
                 icon.name: "go-previous"
                 display: QQC2.AbstractButton.IconOnly
-                enabled: root.slotIndex > 0
+                enabled: cardRoot.slotIndex > 0
                 QQC2.ToolTip.visible: hovered
-                QQC2.ToolTip.text: root.i18nText("Move earlier")
-                onClicked: root.moveLeftRequested(root.slotIndex)
+                QQC2.ToolTip.text: cardRoot.i18nText("Move earlier")
+                onClicked: cardRoot.moveLeftRequested(cardRoot.slotIndex)
             }
 
             QQC2.Label {
-                text: "#" + (root.slotIndex + 1)
+                text: "#" + (cardRoot.slotIndex + 1)
                 font.bold: true
                 font.pixelSize: Kirigami.Theme.smallFont.pixelSize
                 Layout.fillWidth: true
@@ -100,18 +100,18 @@ Rectangle {
             QQC2.ToolButton {
                 icon.name: "go-next"
                 display: QQC2.AbstractButton.IconOnly
-                enabled: root.slotIndex < root.totalSlots - 1
+                enabled: cardRoot.slotIndex < cardRoot.totalSlots - 1
                 QQC2.ToolTip.visible: hovered
-                QQC2.ToolTip.text: root.i18nText("Move later")
-                onClicked: root.moveRightRequested(root.slotIndex)
+                QQC2.ToolTip.text: cardRoot.i18nText("Move later")
+                onClicked: cardRoot.moveRightRequested(cardRoot.slotIndex)
             }
 
             QQC2.ToolButton {
                 icon.name: "edit-delete-remove"
                 display: QQC2.AbstractButton.IconOnly
                 QQC2.ToolTip.visible: hovered
-                QQC2.ToolTip.text: root.i18nText("Remove slot")
-                onClicked: root.removeRequested(root.slotIndex)
+                QQC2.ToolTip.text: cardRoot.i18nText("Remove slot")
+                onClicked: cardRoot.removeRequested(cardRoot.slotIndex)
             }
         }
 
@@ -127,7 +127,7 @@ Rectangle {
             Image {
                 id: previewImage
                 anchors.fill: parent
-                source: root.thumbPath ? ("file://" + root.thumbPath) : (root.imagePath ? ("file://" + root.imagePath) : "")
+                source: cardRoot.thumbPath ? ("file://" + cardRoot.thumbPath) : (cardRoot.imagePath ? ("file://" + cardRoot.imagePath) : "")
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 visible: status === Image.Ready
@@ -148,7 +148,7 @@ Rectangle {
 
                 QQC2.Label {
                     Layout.alignment: Qt.AlignHCenter
-                    text: root.i18nText("Choose Image")
+                    text: cardRoot.i18nText("Choose Image")
                     font.pixelSize: Kirigami.Theme.smallFont.pixelSize
                     opacity: 0.6
                 }
@@ -157,7 +157,7 @@ Rectangle {
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.pickImageRequested(root.slotIndex)
+                onClicked: cardRoot.pickImageRequested(cardRoot.slotIndex)
             }
         }
 
@@ -171,7 +171,7 @@ Rectangle {
                 id: hoursSpin
                 from: 0
                 to: 23
-                value: root.currentHour
+                value: cardRoot.currentHour
                 editable: true
                 Layout.preferredWidth: Kirigami.Units.gridUnit * 3.8
 
@@ -185,7 +185,7 @@ Rectangle {
                 onValueModified: {
                     var hh = (value < 10 ? "0" : "") + value;
                     var mm = (minutesSpin.value < 10 ? "0" : "") + minutesSpin.value;
-                    root.slotTimeEdited(root.slotIndex, hh + ":" + mm);
+                    cardRoot.slotTimeEdited(cardRoot.slotIndex, hh + ":" + mm);
                 }
             }
 
@@ -199,7 +199,7 @@ Rectangle {
                 from: 0
                 to: 59
                 stepSize: 5
-                value: root.currentMinute
+                value: cardRoot.currentMinute
                 editable: true
                 Layout.preferredWidth: Kirigami.Units.gridUnit * 3.8
 
@@ -213,7 +213,7 @@ Rectangle {
                 onValueModified: {
                     var hh = (hoursSpin.value < 10 ? "0" : "") + hoursSpin.value;
                     var mm = (value < 10 ? "0" : "") + value;
-                    root.slotTimeEdited(root.slotIndex, hh + ":" + mm);
+                    cardRoot.slotTimeEdited(cardRoot.slotIndex, hh + ":" + mm);
                 }
             }
         }
@@ -222,14 +222,14 @@ Rectangle {
         QQC2.TextField {
             id: labelField
             Layout.fillWidth: true
-            text: root.label
-            placeholderText: root.i18nText("Label (optional)")
+            text: cardRoot.label
+            placeholderText: cardRoot.i18nText("Label (optional)")
             horizontalAlignment: Text.AlignHCenter
             font.pixelSize: Kirigami.Theme.smallFont.pixelSize
 
             onEditingFinished: {
-                if (text !== root.label) {
-                    root.slotLabelEdited(root.slotIndex, text.trim());
+                if (text !== cardRoot.label) {
+                    cardRoot.slotLabelEdited(cardRoot.slotIndex, text.trim());
                 }
             }
         }
