@@ -20,7 +20,7 @@ import math
 import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, NoReturn
 
 # Standard Base Directories
 APP_NAME = "9to5-wallpaper"
@@ -33,14 +33,14 @@ LOG_FILE = DATA_HOME / "9to5.log"
 def setup_logging():
     """Configures persistent file logging for all helper actions and QML diagnostics."""
     DATA_HOME.mkdir(parents=True, exist_ok=True)
-    logger = logging.getLogger("9to5-wallpaper")
-    logger.setLevel(logging.DEBUG)
-    if not logger.handlers:
+    app_logger = logging.getLogger("9to5-wallpaper")
+    app_logger.setLevel(logging.DEBUG)
+    if not app_logger.handlers:
         file_handler = logging.FileHandler(str(LOG_FILE), encoding="utf-8")
         formatter = logging.Formatter("%(asctime)s [%(levelname)s] [PID %(process)d] %(message)s")
         file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    return logger
+        app_logger.addHandler(file_handler)
+    return app_logger
 
 
 logger = setup_logging()
@@ -52,7 +52,7 @@ def ensure_directories():
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def json_output(status: str, command: str, data: Any = None, error: Optional[str] = None):
+def json_output(status: str, command: str, data: Any = None, error: Optional[str] = None) -> NoReturn:
     """Prints a standard JSON response to stdout, logs to 9to5.log, and exits."""
     payload = {
         "status": status,
@@ -90,7 +90,7 @@ def parse_apple_xmp(xmp_str: str) -> Dict[str, Any]:
 
     try:
         root = ET.fromstring(xmp_str)
-    except Exception as e:
+    except Exception:
         return result
 
     ns = {
@@ -161,7 +161,7 @@ def parse_apple_xmp(xmp_str: str) -> Dict[str, Any]:
                         })
 
                 break
-            except Exception as e:
+            except Exception:
                 continue
 
     return result
@@ -309,7 +309,7 @@ def extract_frames_from_heic(heic_path: Path, output_dir: Path) -> List[Path]:
         logger.info(f"Invoking ffmpeg fallback frame extraction for {heic_path}")
         ff_pattern = output_dir / "ff_frame_%03d.jpg"
         try:
-            ff_proc = subprocess.run(
+            subprocess.run(
                 ["ffmpeg", "-y", "-i", str(heic_path), "-map", "0:v", "-q:v", "2", str(ff_pattern)],
                 capture_output=True,
                 text=True,
@@ -563,7 +563,7 @@ def cmd_pack_heic(args):
 # Profile Storage CRUD Commands
 # ---------------------------------------------------------------------------
 
-def cmd_list_profiles(args):
+def cmd_list_profiles(_args):
     """Lists all available profiles."""
     ensure_directories()
     profiles = []
@@ -607,10 +607,12 @@ def cmd_save_profile(args):
         profile_data = json.loads(args.payload)
     except Exception as e:
         json_output("error", "save-profile", error=f"Invalid JSON payload: {str(e)}")
+        return
 
     profile_id = args.id or profile_data.get("id")
     if not profile_id:
         json_output("error", "save-profile", error="Missing profile ID")
+        return
 
     profile_id = re.sub(r"[^a-zA-Z0-9_\-]", "", profile_id)
     profile_data["id"] = profile_id
@@ -629,6 +631,10 @@ def cmd_delete_profile(args):
     profile_file = PROFILES_DIR / f"{profile_id}.json"
     deleted_files = []
 
+    existing_profiles = [p for p in PROFILES_DIR.glob("*.json") if p.is_file()]
+    if len(existing_profiles) <= 1 and profile_file.exists():
+        json_output("error", "delete-profile", error="Cannot delete the last remaining preset")
+
     if profile_file.exists():
         profile_file.unlink()
         deleted_files.append(str(profile_file))
@@ -641,7 +647,7 @@ def cmd_delete_profile(args):
     json_output("success", "delete-profile", data={"id": profile_id, "deleted": deleted_files})
 
 
-def cmd_init_defaults(args):
+def cmd_init_defaults(_args):
     """Initializes standard folders and generates a starter default profile."""
     ensure_directories()
     default_id = "default-aurora"
@@ -710,7 +716,7 @@ def cmd_init_defaults(args):
 # Automated Self-Test Suite
 # ---------------------------------------------------------------------------
 
-def cmd_self_test(args):
+def cmd_self_test(_args):
     """Runs automated verification tests across all core functionality."""
     print("Running 9to5 Wallpaper Helper Self-Test...")
     ensure_directories()

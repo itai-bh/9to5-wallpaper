@@ -57,23 +57,36 @@ Rectangle {
             anchors.margins: 2
             text: root.fileName || root.imagePath.split("/").pop()
             elide: Text.ElideMiddle
-            font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+            font.pointSize: (font.pointSize > 0) ? Math.round(font.pointSize * 0.9) : 9
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
     }
 
     // Remove button
-    QQC2.ToolButton {
+    Item {
         anchors.top: parent.top
         anchors.right: parent.right
         anchors.margins: 2
-        icon.name: "edit-delete-remove"
-        display: QQC2.AbstractButton.IconOnly
         width: Kirigami.Units.iconSizes.small * 1.5
         height: width
         visible: mouseArea.containsMouse
-        onClicked: root.removeRequested(root.imagePath)
+
+        Kirigami.Icon {
+            anchors.centerIn: parent
+            width: Kirigami.Units.iconSizes.small
+            height: width
+            source: "edit-delete"
+            opacity: stagingRemoveMouse.pressed ? 0.5 : (stagingRemoveMouse.containsMouse ? 1.0 : 0.75)
+        }
+
+        MouseArea {
+            id: stagingRemoveMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.removeRequested(root.imagePath)
+        }
     }
 
     MouseArea {
