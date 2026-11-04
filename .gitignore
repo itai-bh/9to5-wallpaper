@@ -1,0 +1,28 @@
+# Build outputs
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Packaging
+*.kpackage
+*.tar.gz
+*.zip
+
+# Editors and IDEs
+.idea/
+.vscode/
+qodana.yaml
+*.kdev4
+*.swp
+*~
+
+# OS and Cache
+.directory
+.DS_Store
+__pycache__/
+
+# Agent workspace directories
+.awb/
+skills/

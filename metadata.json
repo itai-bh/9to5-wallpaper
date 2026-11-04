@@ -1,0 +1,21 @@
+{
+    "KPackageStructure": "Plasma/Wallpaper",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "itaibenhoresh@gmail.com",
+                "Name": "Itai"
+            }
+        ],
+        "Category": "Wallpaper",
+        "Description": "9to5 time-based wallpaper extension for KDE Plasma 6",
+        "Icon": "preferences-desktop-wallpaper",
+        "Id": "org.kde.plasma.9to5",
+        "License": "GPL-3.0-or-later",
+        "Name": "9to5 Wallpaper",
+        "Version": "1.0.0",
+        "Website": ""
+    },
+    "X-KDE-ParentApp": "org.kde.plasmashell",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

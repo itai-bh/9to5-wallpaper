@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd" >
+  <kcfgfile name=""/>
+
+  <group name="General">
+    <entry name="ActiveProfile" type="String">
+      <label>Active dynamic wallpaper profile ID</label>
+      <default>default-aurora</default>
+    </entry>
+
+    <entry name="EnableTransitions" type="Bool">
+      <label>Enable smooth crossfade transitions between time slots</label>
+      <default>true</default>
+    </entry>
+
+    <entry name="TransitionDuration" type="Int">
+      <label>Crossfade transition duration in milliseconds</label>
+      <default>1500</default>
+    </entry>
+
+    <entry name="FillMode" type="Int">
+      <label>Image sizing fill mode (1 = PreserveAspectCrop)</label>
+      <default>1</default>
+    </entry>
+
+    <entry name="FallbackColor" type="Color">
+      <label>Background fallback color</label>
+      <default>#1e1e2e</default>
+    </entry>
+
+    <entry name="DynamicAccentColor" type="Bool">
+      <label>Extract and apply accent color dynamically based on time of day</label>
+      <default>true</default>
+    </entry>
+
+    <entry name="ProfileRevision" type="Int">
+      <label>Revision counter to notify runtime when profile slots are updated</label>
+      <default>0</default>
+    </entry>
+  </group>
+</kcfg>
