@@ -1,16 +1,16 @@
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
-import QtQuick.Dialogs as QtDialogs
 import QtCore
 import org.kde.kirigami as Kirigami
-import org.kde.kquickcontrols as KQuickControls
 import org.kde.plasma.plasma5support as P5Support
+import "ProfileLogic.js" as ProfileLogic
 
-Kirigami.FormLayout {
+ColumnLayout {
     id: root
+    spacing: Kirigami.Units.smallSpacing
 
-    property alias formLayout: root
+    property alias formLayout: profileManager
 
     // Signal consumed by Plasma System Settings to enable the "Apply" button
     signal configurationChanged()
@@ -20,38 +20,49 @@ Kirigami.FormLayout {
     property var wallpaperConfiguration: null
     property var parentLayout: null
 
-    // Safe localization helper function
-    function i18nText(text) {
-        if (typeof i18nd !== "undefined") {
-            return i18nd("plasma_wallpaper_org.kde.plasma.9to5", text);
+    // Discover parent Kirigami.FormLayout from Plasma appearance container if available
+    readonly property var discoveredParentLayout: {
+        if (typeof appearanceRoot !== "undefined" && appearanceRoot && appearanceRoot.parentLayout) {
+            return appearanceRoot.parentLayout;
         }
-        if (typeof i18n !== "undefined") {
-            return i18n(text);
+        if (root.parentLayout) {
+            return root.parentLayout;
         }
-        return text;
+        var p = root.parent;
+        while (p) {
+            if (p.parentLayout) return p.parentLayout;
+            p = p.parent;
+        }
+        return null;
     }
 
-    // Convert QML file:// URL to clean filesystem path
-    function urlToPath(url) {
-        if (!url) return "";
-        var str = url.toString();
-        if (str.indexOf("file://") === 0) {
-            str = str.substring(7);
+    readonly property bool isWideMode: {
+        if (discoveredParentLayout) {
+            return discoveredParentLayout.wideMode;
         }
-        return decodeURIComponent(str);
+        return root.width >= Kirigami.Units.gridUnit * 30;
+    }
+
+    // Safe localization helper function
+    function i18nText(text) {
+        return (typeof i18nd !== "undefined") ? i18nd("plasma_wallpaper_org.kde.plasma.9to5", text)
+             : (typeof i18n !== "undefined") ? i18n(text) : text;
     }
 
     // Properties prefixed with cfg_ are automatically bound by Plasma to main.xml
-    property alias cfg_ActiveProfile: activeProfileHolder.text
-    property alias cfg_EnableTransitions: enableTransitionsSwitch.checked
-    property alias cfg_TransitionDuration: transitionSlider.value
-    property alias cfg_FillMode: fillModeComboBox.currentValue
-    property alias cfg_FallbackColor: fallbackColorButton.color
-    property alias cfg_DynamicAccentColor: dynamicAccentSwitch.checked
+    property string cfg_ActiveProfile: "default-aurora"
+    property alias cfg_EnableTransitions: displaySettings.enableTransitions
+    property alias cfg_TransitionDuration: displaySettings.transitionDuration
+    property int cfg_FillMode: Image.PreserveAspectCrop
+    property alias cfg_FallbackColor: displaySettings.fallbackColor
+    property alias cfg_DynamicAccentColor: displaySettings.dynamicAccentColor
     property int cfg_ProfileRevision: 0
 
-    onCfg_ProfileRevisionChanged: {
-        root.configurationChanged();
+    onCfg_ActiveProfileChanged: {
+        if (!root.isRefreshing && profileManager.currentProfileId !== root.cfg_ActiveProfile) {
+            profileManager.selectProfile(root.cfg_ActiveProfile);
+            root.loadActiveProfile(root.cfg_ActiveProfile);
+        }
     }
 
     function logMessage(level, msg) {
@@ -60,15 +71,8 @@ Kirigami.FormLayout {
     }
 
     function saveConfig() {
-        root.logMessage("INFO", "saveConfig() invoked by Plasma System Settings. Committing profile: " + activeProfileHolder.text);
-        root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
-        root.saveActiveProfile();
-        if (root.wallpaperConfiguration) {
-            root.wallpaperConfiguration.ProfileRevision = root.cfg_ProfileRevision;
-            root.wallpaperConfiguration.ActiveProfile = activeProfileHolder.text;
-            root.wallpaperConfiguration.writeConfig();
-            root.logMessage("INFO", "Committed ProfileRevision=" + root.cfg_ProfileRevision + " directly to wallpaperConfiguration");
-        }
+        root.logMessage("INFO", "saveConfig() invoked by Plasma System Settings. Committing profile: " + root.cfg_ActiveProfile);
+        root.saveActiveProfile(false);
     }
 
     // Internal path helpers
@@ -78,16 +82,6 @@ Kirigami.FormLayout {
     // Internal Models and State
     property var activeProfileData: null
     property bool isRefreshing: false
-    property int targetSlotForSinglePicker: -1
-
-    // Hidden holder for cfg_ActiveProfile binding
-    QQC2.TextField {
-        id: activeProfileHolder
-        visible: false
-        onTextChanged: {
-            root.configurationChanged();
-        }
-    }
 
     ListModel {
         id: profilesListModel
@@ -138,451 +132,105 @@ Kirigami.FormLayout {
     }
 
     // -----------------------------------------------------------------------
-    // ZONE 1: Profile Manager
+    // Visual Sections
     // -----------------------------------------------------------------------
 
-    RowLayout {
-        Kirigami.FormData.label: root.i18nText("Profile:")
-        spacing: Kirigami.Units.smallSpacing
+    ProfileManagerSection {
+        id: profileManager
+        parentLayout: root.discoveredParentLayout
+        twinLayout: displaySettings
+        profilesModel: profilesListModel
+        slotsModel: slotsListModel
 
-        QQC2.ComboBox {
-            id: profileComboBox
-            Layout.fillWidth: true
-            model: profilesListModel
-            textRole: "name"
-            valueRole: "id"
-
-            onActivated: {
-                if (!root.isRefreshing && currentValue) {
-                    activeProfileHolder.text = currentValue;
-                    root.loadActiveProfile(currentValue);
-                    root.configurationChanged();
-                }
+        onProfileSelected: (profileId) => {
+            if (!root.isRefreshing) {
+                root.cfg_ActiveProfile = profileId;
+                root.loadActiveProfile(profileId);
             }
         }
-
-        QQC2.Button {
-            icon.name: "document-new"
-            text: root.i18nText("New...")
-            onClicked: newProfileDialog.open()
-        }
-
-        QQC2.Button {
-            icon.name: "edit-copy"
-            text: root.i18nText("Duplicate")
-            enabled: profileComboBox.currentIndex >= 0
-            onClicked: root.duplicateCurrentProfile()
-        }
-
-        QQC2.Button {
-            icon.name: "edit-delete"
-            text: root.i18nText("Delete")
-            enabled: profileComboBox.currentValue !== "default-aurora" && profilesListModel.count > 1
-            onClicked: root.deleteCurrentProfile()
-        }
-    }
-
-    RowLayout {
-        Kirigami.FormData.label: root.i18nText("Dynamic HEIC:")
-        spacing: Kirigami.Units.smallSpacing
-
-        QQC2.Button {
-            icon.name: "document-import"
-            text: root.i18nText("Import .heic Preset...")
-            onClicked: heicImportDialog.open()
-        }
-
-        QQC2.Button {
-            icon.name: "document-export"
-            text: root.i18nText("Export Current to .heic...")
-            enabled: slotsListModel.count > 0
-            onClicked: heicExportDialog.open()
-        }
-
-        Item {
-            Layout.fillWidth: true
-        }
-
-        QQC2.BusyIndicator {
-            id: busySpinner
-            running: false
-            visible: running
-            implicitWidth: Kirigami.Units.iconSizes.small
-            implicitHeight: implicitWidth
-        }
+        onNewProfileRequested: dialogs.openNewProfileDialog()
+        onDuplicateProfileRequested: root.duplicateCurrentProfile()
+        onDeleteProfileRequested: root.deleteCurrentProfile()
+        onImportHeicRequested: dialogs.openHeicImportDialog()
+        onExportHeicRequested: dialogs.openHeicExportDialog(profileManager.currentProfileId)
     }
 
     Kirigami.Separator {
-        Kirigami.FormData.isSection: true
-        Kirigami.FormData.label: root.i18nText("24-Hour Dynamic Timeline")
-    }
-
-    // -----------------------------------------------------------------------
-    // ZONE 2: Unified Timeline & Interactive Slots Track
-    // -----------------------------------------------------------------------
-
-    RowLayout {
-        Kirigami.FormData.label: root.i18nText("Actions:")
-        spacing: Kirigami.Units.smallSpacing
-
-        QQC2.Button {
-            icon.name: "insert-image"
-            text: root.i18nText("Add Images...")
-            onClicked: bulkImagesDialog.open()
-        }
-
-        QQC2.Button {
-            icon.name: "list-add"
-            text: root.i18nText("Add Blank Slot")
-            onClicked: root.addTimeSlot("12:00", "")
-        }
-
-        QQC2.Button {
-            icon.name: "view-grid"
-            text: root.i18nText("Distribute Evenly")
-            enabled: slotsListModel.count > 1
-            onClicked: root.distributeSlotsEvenly()
-        }
-
-        QQC2.ComboBox {
-            id: presetsComboBox
-            model: [
-                { text: root.i18nText("Apply a preset..."), value: "none" },
-                { text: root.i18nText("2-Stage (Day / Night)"), value: "2stage" },
-                { text: root.i18nText("4-Stage (Dawn / Noon / Dusk / Night)"), value: "4stage" },
-                { text: root.i18nText("8-Stage (3-hour intervals)"), value: "8stage" },
-                { text: root.i18nText("16-Stage (Hourly cycle)"), value: "16stage" }
-            ]
-            textRole: "text"
-            valueRole: "value"
-
-            onActivated: {
-                if (currentValue !== "none") {
-                    root.applyPreset(currentValue);
-                    currentIndex = 0;
-                }
-            }
-        }
-    }
-
-    // Horizontal Scrollable Unified Timeline
-    QQC2.ScrollView {
-        Kirigami.FormData.label: root.i18nText("Timeline track:")
         Layout.fillWidth: true
-        implicitHeight: Kirigami.Units.gridUnit * 15.5
-        QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AsNeeded
-        QQC2.ScrollBar.vertical.policy: QQC2.ScrollBar.AlwaysOff
+    }
 
-        RowLayout {
-            spacing: Kirigami.Units.largeSpacing
+    TimelineTrackSection {
+        id: timelineTrack
+        slotsModel: slotsListModel
 
-            Repeater {
-                model: slotsListModel
-
-                delegate: SlotCard {
-                    slotIndex: index
-                    totalSlots: slotsListModel.count
-                    time: model.time
-                    label: model.label || ""
-                    imagePath: model.imagePath || ""
-                    thumbPath: model.thumbPath || ""
-
-                    onSlotTimeEdited: (idx, newTime) => {
-                        slotsListModel.setProperty(idx, "time", newTime);
-                        root.sortAndSaveSlots();
-                    }
-
-                    onSlotLabelEdited: (idx, newLabel) => {
-                        slotsListModel.setProperty(idx, "label", newLabel);
-                        root.saveActiveProfile();
-                    }
-
-                    onImageAssigned: (idx, newImagePath, newThumbPath) => {
-                        slotsListModel.setProperty(idx, "imagePath", newImagePath);
-                        slotsListModel.setProperty(idx, "thumbPath", newThumbPath);
-                        root.saveActiveProfile();
-                    }
-
-                    onPickImageRequested: (idx) => {
-                        root.targetSlotForSinglePicker = idx;
-                        singleImageDialog.open();
-                    }
-
-                    onMoveLeftRequested: (idx) => {
-                        root.swapSlots(idx, idx - 1);
-                    }
-
-                    onMoveRightRequested: (idx) => {
-                        root.swapSlots(idx, idx + 1);
-                    }
-
-                    onRemoveRequested: (idx) => {
-                        slotsListModel.remove(idx);
-                        root.saveActiveProfile();
-                    }
-                }
-            }
-
-            // Quick Add Slot Card at the end of the timeline
-            Rectangle {
-                implicitWidth: Kirigami.Units.gridUnit * 7
-                implicitHeight: Kirigami.Units.gridUnit * 14
-                color: Kirigami.Theme.alternateBackgroundColor
-                border.color: Kirigami.ColorUtils.linearInterpolation(Kirigami.Theme.backgroundColor, Kirigami.Theme.textColor, 0.15)
-                radius: Kirigami.Units.cornerRadius
-
-                ColumnLayout {
-                    anchors.centerIn: parent
-                    spacing: Kirigami.Units.smallSpacing
-
-                    QQC2.ToolButton {
-                        Layout.alignment: Qt.AlignHCenter
-                        icon.name: "list-add"
-                        onClicked: root.addTimeSlot("12:00", "")
-                    }
-
-                    QQC2.Label {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: root.i18nText("Add Slot")
-                        font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-                        opacity: 0.7
-                    }
-                }
-            }
+        onAddImagesRequested: dialogs.openBulkImagesDialog()
+        onAddBlankSlotRequested: root.addTimeSlot("12:00", "")
+        onDistributeEvenlyRequested: root.distributeSlotsEvenly()
+        onPresetSelected: (preset) => root.applyPreset(preset)
+        onSlotTimeEdited: (idx, newTime) => {
+            slotsListModel.setProperty(idx, "time", newTime);
+            root.sortAndSaveSlots();
+        }
+        onSlotLabelEdited: (idx, newLabel) => {
+            slotsListModel.setProperty(idx, "label", newLabel);
+            root.saveActiveProfile(true);
+        }
+        onImageAssigned: (idx, newImg, newThumb) => {
+            slotsListModel.setProperty(idx, "imagePath", newImg);
+            slotsListModel.setProperty(idx, "thumbPath", newThumb);
+            root.saveActiveProfile(true);
+        }
+        onPickImageRequested: (idx) => dialogs.openSingleImageDialog(idx)
+        onMoveLeftRequested: (idx) => root.swapSlots(idx, idx - 1)
+        onMoveRightRequested: (idx) => root.swapSlots(idx, idx + 1)
+        onRemoveRequested: (idx) => {
+            slotsListModel.remove(idx);
+            root.saveActiveProfile(true);
         }
     }
 
     Kirigami.Separator {
-        Kirigami.FormData.isSection: true
-        Kirigami.FormData.label: root.i18nText("Transitions & Sizing")
+        Layout.fillWidth: true
     }
 
-    // -----------------------------------------------------------------------
-    // ZONE 3: Transitions & Sizing Options
-    // -----------------------------------------------------------------------
-
-    QQC2.CheckBox {
-        id: enableTransitionsSwitch
-        Kirigami.FormData.label: root.i18nText("Transitions:")
-        text: root.i18nText("Enable smooth crossfade transitions between time slots")
-        checked: true
-        onCheckedChanged: root.configurationChanged()
+    DisplaySettingsSection {
+        id: displaySettings
+        parentLayout: root.discoveredParentLayout
+        twinLayout: profileManager
+        cfgFillMode: root.cfg_FillMode
+        onFillModeSelected: (mode) => root.cfg_FillMode = mode
     }
 
-    RowLayout {
-        Kirigami.FormData.label: root.i18nText("Transition speed:")
-        enabled: enableTransitionsSwitch.checked
-        spacing: Kirigami.Units.smallSpacing
+    ConfigDialogs {
+        id: dialogs
 
-        QQC2.Slider {
-            id: transitionSlider
-            from: 200
-            to: 5000
-            stepSize: 100
-            value: 1500
-            Layout.fillWidth: true
-            onValueChanged: root.configurationChanged()
-        }
-
-        QQC2.Label {
-            text: (transitionSlider.value / 1000.0).toFixed(1) + "s"
-            Layout.minimumWidth: Kirigami.Units.gridUnit * 3
-        }
-    }
-
-    QQC2.ComboBox {
-        id: fillModeComboBox
-        Kirigami.FormData.label: root.i18nText("Positioning:")
-        textRole: "label"
-        valueRole: "fillMode"
-        model: [
-            { label: root.i18nText("Scaled and cropped (Fill Screen)"), fillMode: Image.PreserveAspectCrop },
-            { label: root.i18nText("Scaled, keep proportions (Fit to Screen)"), fillMode: Image.PreserveAspectFit },
-            { label: root.i18nText("Scaled (Stretch)"), fillMode: Image.Stretch },
-            { label: root.i18nText("Centered (No scaling)"), fillMode: Image.Pad }
-        ]
-        onActivated: root.configurationChanged()
-    }
-
-    QQC2.CheckBox {
-        id: dynamicAccentSwitch
-        Kirigami.FormData.label: root.i18nText("Accent color:")
-        text: root.i18nText("Dynamically update Plasma system accent color based on active time of day")
-        checked: true
-        onCheckedChanged: root.configurationChanged()
-    }
-
-    KQuickControls.ColorButton {
-        id: fallbackColorButton
-        Kirigami.FormData.label: root.i18nText("Fallback color:")
-        dialogTitle: root.i18nText("Select Fallback Background Color")
-        onColorChanged: root.configurationChanged()
-    }
-
-    // -----------------------------------------------------------------------
-    // File & Action Dialogs
-    // -----------------------------------------------------------------------
-
-    // New Profile Dialog
-    QQC2.Dialog {
-        id: newProfileDialog
-        title: root.i18nText("Create New Profile")
-        standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
-        anchors.centerIn: parent
-        modal: true
-
-        ColumnLayout {
-            spacing: Kirigami.Units.largeSpacing
-
-            QQC2.Label {
-                text: root.i18nText("Profile Name:")
-            }
-
-            QQC2.TextField {
-                id: newProfileNameField
-                placeholderText: root.i18nText("My Dynamic Wallpaper")
-                Layout.fillWidth: true
-            }
-        }
-
-        onAccepted: {
-            var name = newProfileNameField.text.trim();
-            if (name.length > 0) {
-                root.createNewProfile(name);
-                newProfileNameField.text = "";
-            }
-        }
-    }
-
-    // Bulk Add Images Dialog
-    QtDialogs.FileDialog {
-        id: bulkImagesDialog
-        title: root.i18nText("Select Images to Add to Timeline")
-        fileMode: QtDialogs.FileDialog.OpenFiles
-        nameFilters: [
-            root.i18nText("Image Files (*.jpg *.jpeg *.png *.webp *.avif *.heic)"),
-            root.i18nText("All Files (*)")
-        ]
-
-        onAccepted: {
-            if (selectedFiles && selectedFiles.length > 0) {
-                root.logMessage("INFO", "bulkImagesDialog accepted " + selectedFiles.length + " files");
-                for (var i = 0; i < selectedFiles.length; i++) {
-                    var p = root.urlToPath(selectedFiles[i]);
-                    // Calculate automatic sequential time distribution
-                    var total = slotsListModel.count + 1;
-                    var mins = Math.round(((total - 1) / total) * 1440) % 1440;
-                    var hh = Math.floor(mins / 60);
-                    var mm = mins % 60;
-                    var timeStr = (hh < 10 ? "0" + hh : hh) + ":" + (mm < 10 ? "0" + mm : mm);
-
-                    slotsListModel.append({
-                        time: timeStr,
-                        label: p.split("/").pop().replace(/\.[^/.]+$/, ""),
-                        imagePath: p,
-                        thumbPath: p
-                    });
-                }
-                root.distributeSlotsEvenly();
-            }
-        }
-    }
-
-    // Single Image Picker Dialog
-    QtDialogs.FileDialog {
-        id: singleImageDialog
-        title: root.i18nText("Select Wallpaper Image for Slot")
-        fileMode: QtDialogs.FileDialog.OpenFile
-        nameFilters: [
-            root.i18nText("Image Files (*.jpg *.jpeg *.png *.webp *.avif *.heic)"),
-            root.i18nText("All Files (*)")
-        ]
-
-        onAccepted: {
-            if (selectedFile && root.targetSlotForSinglePicker >= 0 && root.targetSlotForSinglePicker < slotsListModel.count) {
-                var cleanPath = root.urlToPath(selectedFile);
-                root.logMessage("INFO", "singleImageDialog assigned image to slot " + root.targetSlotForSinglePicker + ": " + cleanPath);
-                slotsListModel.setProperty(root.targetSlotForSinglePicker, "imagePath", cleanPath);
-                slotsListModel.setProperty(root.targetSlotForSinglePicker, "thumbPath", cleanPath);
-                root.saveActiveProfile();
-                root.targetSlotForSinglePicker = -1;
-            }
-        }
-    }
-
-    // HEIC Import Dialog
-    QtDialogs.FileDialog {
-        id: heicImportDialog
-        title: root.i18nText("Select Apple Dynamic .heic Wallpaper")
-        fileMode: QtDialogs.FileDialog.OpenFile
-        nameFilters: [
-            root.i18nText("Apple Dynamic Wallpaper (*.heic *.HEIC)"),
-            root.i18nText("All Files (*)")
-        ]
-
-        onAccepted: {
-            if (selectedFile) {
-                var cleanPath = root.urlToPath(selectedFile);
-                root.logMessage("INFO", "heicImportDialog starting unpack on: " + cleanPath);
-                busySpinner.running = true;
-
-                commandRunner.exec(`python3 "${root.helperScript}" unpack-heic "${cleanPath}"`, (result) => {
-                    busySpinner.running = false;
-                    try {
-                        var resp = JSON.parse(result.stdout);
-                        if (resp.status === "success") {
-                            root.logMessage("INFO", "HEIC unpack succeeded, loading profile: " + resp.data.profileId);
-                            root.refreshProfilesList(resp.data.profileId);
-                            root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
-                            root.configurationChanged();
-                        } else {
-                            root.logMessage("ERROR", "HEIC unpack failed: " + resp.error);
-                        }
-                    } catch (e) {
-                        root.logMessage("ERROR", "Failed to parse unpack output: " + e + " (stdout=" + result.stdout + ")");
-                    }
+        onProfileCreateAccepted: (name) => root.createNewProfile(name)
+        onBulkImagesAccepted: (paths) => {
+            for (var i = 0; i < paths.length; i++) {
+                var p = paths[i];
+                slotsListModel.append({
+                    time: "12:00",
+                    label: p.split("/").pop().replace(/\.[^/.]+$/, ""),
+                    imagePath: p,
+                    thumbPath: p
                 });
             }
+            root.distributeSlotsEvenly();
         }
-    }
-
-    // HEIC Export Dialog
-    QtDialogs.FileDialog {
-        id: heicExportDialog
-        title: root.i18nText("Export Dynamic Wallpaper to .heic")
-        fileMode: QtDialogs.FileDialog.SaveFile
-        nameFilters: [
-            root.i18nText("Apple Dynamic Wallpaper (*.heic)"),
-            root.i18nText("All Files (*)")
-        ]
-
-        onAccepted: {
-            if (selectedFile) {
-                var targetPath = root.urlToPath(selectedFile);
-                if (!targetPath.toLowerCase().endsWith(".heic")) {
-                    targetPath += ".heic";
-                }
-                var profileId = profileComboBox.currentValue;
-                busySpinner.running = true;
-                commandRunner.exec(`python3 "${root.helperScript}" pack-heic --profile "${profileId}" -o "${targetPath}"`, (result) => {
-                    busySpinner.running = false;
-                    try {
-                        var resp = JSON.parse(result.stdout);
-                        if (resp.status === "success") {
-                            console.log("[9to5-wallpaper] Successfully exported HEIC to:", resp.data.outputFile);
-                        } else {
-                            console.error("[9to5-wallpaper] Pack error:", resp.error);
-                        }
-                    } catch (e) {
-                        console.error("[9to5-wallpaper] Failed to parse export output:", e);
-                    }
-                });
+        onSingleImageAccepted: (slotIdx, path) => {
+            if (slotIdx >= 0 && slotIdx < slotsListModel.count) {
+                root.logMessage("INFO", "Assigned image to slot " + slotIdx + ": " + path);
+                slotsListModel.setProperty(slotIdx, "imagePath", path);
+                slotsListModel.setProperty(slotIdx, "thumbPath", path);
+                root.saveActiveProfile(true);
             }
         }
+        onHeicImportAccepted: (cleanPath) => root.unpackHeicFile(cleanPath)
+        onHeicExportAccepted: (profileId, targetPath) => root.packHeicFile(profileId, targetPath)
     }
 
     // -----------------------------------------------------------------------
-    // Core Logic & Profile Management Functions
+    // Business Logic & Profile CRUD
     // -----------------------------------------------------------------------
 
     function refreshProfilesList(selectProfileId) {
@@ -593,7 +241,7 @@ Kirigami.FormLayout {
                 if (resp.status === "success") {
                     profilesListModel.clear();
                     var foundIdx = -1;
-                    var targetId = selectProfileId || activeProfileHolder.text || "default-aurora";
+                    var targetId = selectProfileId || root.cfg_ActiveProfile || (resp.data.profiles.length > 0 ? resp.data.profiles[0].id : "");
 
                     for (var i = 0; i < resp.data.profiles.length; i++) {
                         var p = resp.data.profiles[i];
@@ -604,14 +252,14 @@ Kirigami.FormLayout {
                     }
 
                     if (foundIdx >= 0) {
-                        profileComboBox.currentIndex = foundIdx;
+                        profileManager.currentProfileIndex = foundIdx;
                     } else if (profilesListModel.count > 0) {
-                        profileComboBox.currentIndex = 0;
+                        profileManager.currentProfileIndex = 0;
                         targetId = profilesListModel.get(0).id;
                     }
 
                     root.isRefreshing = false;
-                    activeProfileHolder.text = targetId;
+                    root.cfg_ActiveProfile = targetId;
                     console.log("[9to5-wallpaper] Config opened, active profile:", targetId, "total profiles:", resp.data.profiles.length);
                     root.loadActiveProfile(targetId);
                 }
@@ -623,14 +271,14 @@ Kirigami.FormLayout {
     }
 
     function loadActiveProfile(profileId) {
-        var profilePath = root.profilesDir + "/" + profileId + ".json";
-        commandRunner.exec(`cat "${profilePath}"`, (result) => {
+        commandRunner.exec(`python3 "${root.helperScript}" get-profile "${profileId}"`, (result) => {
             if (result.exitCode === 0 && result.stdout.trim().length > 0) {
                 try {
-                    var data = JSON.parse(result.stdout);
+                    var resp = JSON.parse(result.stdout);
+                    var data = (resp && resp.data) ? resp.data : resp;
                     root.activeProfileData = data;
                     slotsListModel.clear();
-                    if (data.slots) {
+                    if (data && data.slots) {
                         for (var i = 0; i < data.slots.length; i++) {
                             var s = data.slots[i];
                             slotsListModel.append({
@@ -641,18 +289,21 @@ Kirigami.FormLayout {
                             });
                         }
                     }
-                    console.log("[9to5-wallpaper] Config loaded profile:", profileId, "with", slotsListModel.count, "slots");
                 } catch (e) {
-                    console.warn("[9to5-wallpaper] Failed to parse profile JSON:", e);
+                    console.error("[9to5-wallpaper] Failed to parse active profile:", e);
                 }
             }
         });
     }
 
-    function saveActiveProfile() {
-        if (!profileComboBox.currentValue) return;
+    function saveActiveProfile(bumpRevision) {
+        if (bumpRevision === undefined) {
+            bumpRevision = true;
+        }
 
-        var profileId = profileComboBox.currentValue;
+        var profileId = profileManager.currentProfileId || root.cfg_ActiveProfile;
+        if (!profileId) return;
+
         var slots = [];
         for (var i = 0; i < slotsListModel.count; i++) {
             var item = slotsListModel.get(i);
@@ -667,24 +318,25 @@ Kirigami.FormLayout {
 
         var profileObj = {
             id: profileId,
-            name: profileComboBox.currentText,
-            version: "1.0",
-            source: "user-configured",
-            transitionDuration: transitionSlider.value,
+            name: (root.activeProfileData && root.activeProfileData.name) || profileId,
             slots: slots
         };
 
         var payload = JSON.stringify(profileObj);
-        root.logMessage("INFO", "Saving active profile '" + profileId + "' with " + slots.length + " slots");
-        commandRunner.exec(`python3 "${root.helperScript}" save-profile "${profileId}" --payload '${payload.replace(/'/g, "'\\''")}'`, (result) => {
+        if (bumpRevision) {
             root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
-            root.configurationChanged();
-            root.logMessage("INFO", "Profile '" + profileId + "' saved successfully, bumped cfg_ProfileRevision=" + root.cfg_ProfileRevision);
+        }
+        root.logMessage("INFO", "Saving active profile '" + profileId + "' with " + slots.length + " slots (bumpRevision=" + (bumpRevision ? "true" : "false") + ")");
+        commandRunner.exec(`python3 "${root.helperScript}" save-profile "${profileId}" --payload '${payload.replace(/'/g, "'\\''")}'`, (result) => {
+            if (result.exitCode === 0) {
+                root.logMessage("INFO", "Profile '" + profileId + "' saved successfully to disk");
+            } else {
+                root.logMessage("ERROR", "Failed to save profile '" + profileId + "': " + (result.stderr || result.stdout));
+            }
         });
     }
 
     function sortAndSaveSlots() {
-        // Deep copy properties to avoid QObject lifecycle deletion bugs
         var cleanSlots = [];
         for (var i = 0; i < slotsListModel.count; i++) {
             var it = slotsListModel.get(i);
@@ -696,19 +348,12 @@ Kirigami.FormLayout {
             });
         }
 
-        cleanSlots.sort((a, b) => {
-            var parseM = (t) => {
-                var p = (t || "12:00").split(":");
-                return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0);
-            };
-            return parseM(a.time) - parseM(b.time);
-        });
-
+        var sorted = ProfileLogic.sortSlots(cleanSlots);
         slotsListModel.clear();
-        for (var j = 0; j < cleanSlots.length; j++) {
-            slotsListModel.append(cleanSlots[j]);
+        for (var j = 0; j < sorted.length; j++) {
+            slotsListModel.append(sorted[j]);
         }
-        root.saveActiveProfile();
+        root.saveActiveProfile(true);
     }
 
     function swapSlots(fromIdx, toIdx) {
@@ -719,7 +364,6 @@ Kirigami.FormLayout {
         var itemA = slotsListModel.get(fromIdx);
         var itemB = slotsListModel.get(toIdx);
 
-        // Swap images and labels while retaining sequential time ordering
         var tempImg = itemA.imagePath;
         var tempThumb = itemA.thumbPath;
         var tempLabel = itemA.label;
@@ -732,7 +376,7 @@ Kirigami.FormLayout {
         slotsListModel.setProperty(toIdx, "thumbPath", tempThumb);
         slotsListModel.setProperty(toIdx, "label", tempLabel);
 
-        root.saveActiveProfile();
+        root.saveActiveProfile(true);
     }
 
     function addTimeSlot(time, imagePath) {
@@ -748,46 +392,16 @@ Kirigami.FormLayout {
     function distributeSlotsEvenly() {
         var count = slotsListModel.count;
         if (count === 0) return;
-
+        var intervals = ProfileLogic.computeEvenIntervals(count);
         for (var i = 0; i < count; i++) {
-            var totalMins = Math.round((i / count) * 1440) % 1440;
-            var hh = Math.floor(totalMins / 60);
-            var mm = totalMins % 60;
-            var timeStr = (hh < 10 ? "0" + hh : hh) + ":" + (mm < 10 ? "0" + mm : mm);
-            slotsListModel.setProperty(i, "time", timeStr);
+            slotsListModel.setProperty(i, "time", intervals[i]);
         }
-        root.saveActiveProfile();
+        root.saveActiveProfile(true);
     }
 
     function applyPreset(presetType) {
         slotsListModel.clear();
-        var times = [];
-        if (presetType === "2stage") {
-            times = [{ time: "07:00", label: "Day" }, { time: "19:00", label: "Night" }];
-        } else if (presetType === "4stage") {
-            times = [
-                { time: "06:00", label: "Dawn" },
-                { time: "12:00", label: "Noon" },
-                { time: "18:00", label: "Dusk" },
-                { time: "22:00", label: "Night" }
-            ];
-        } else if (presetType === "8stage") {
-            for (var h = 0; h < 24; h += 3) {
-                var hhStr = (h < 10 ? "0" + h : h) + ":00";
-                times.push({ time: hhStr, label: "" });
-            }
-        } else if (presetType === "16stage") {
-            for (var i = 0; i < 16; i++) {
-                var totalMins = Math.round((i / 16.0) * 1440) % 1440;
-                var sh = Math.floor(totalMins / 60);
-                var sm = totalMins % 60;
-                times.push({
-                    time: (sh < 10 ? "0" + sh : sh) + ":" + (sm < 10 ? "0" + sm : sm),
-                    label: ""
-                });
-            }
-        }
-
+        var times = ProfileLogic.getPresetSlots(presetType);
         for (var k = 0; k < times.length; k++) {
             slotsListModel.append({
                 time: times[k].time,
@@ -796,36 +410,39 @@ Kirigami.FormLayout {
                 thumbPath: ""
             });
         }
-        root.saveActiveProfile();
+        root.saveActiveProfile(true);
     }
 
     function createNewProfile(name) {
-        var newId = name.toLowerCase().replace(/[^a-z0-9]/g, "-");
+        var newId = ProfileLogic.sanitizeProfileId(name);
         var newObj = {
             id: newId,
             name: name,
-            version: "1.0",
-            source: "custom-created",
-            transitionDuration: transitionSlider.value,
             slots: [
                 { slotIndex: 0, time: "06:00", label: "Morning", imagePath: "", thumbPath: "" },
-                { slotIndex: 1, time: "12:00", label: "Afternoon", imagePath: "", thumbPath: "" },
-                { slotIndex: 2, time: "18:00", label: "Evening", imagePath: "", thumbPath: "" },
+                { slotIndex: 1, time: "12:00", label: "Noon", imagePath: "", thumbPath: "" },
+                { slotIndex: 2, time: "18:00", label: "Sunset", imagePath: "", thumbPath: "" },
                 { slotIndex: 3, time: "22:00", label: "Night", imagePath: "", thumbPath: "" }
             ]
         };
 
         var payload = JSON.stringify(newObj);
         commandRunner.exec(`python3 "${root.helperScript}" save-profile "${newId}" --payload '${payload.replace(/'/g, "'\\''")}'`, (result) => {
-            root.refreshProfilesList(newId);
+            if (result.exitCode === 0) {
+                root.cfg_ActiveProfile = newId;
+                root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
+                root.refreshProfilesList(newId);
+            } else {
+                root.logMessage("ERROR", "Failed to create profile: " + (result.stderr || result.stdout));
+            }
         });
     }
 
     function duplicateCurrentProfile() {
         if (!root.activeProfileData) return;
-        var currentId = profileComboBox.currentValue;
+        var currentId = profileManager.currentProfileId || root.cfg_ActiveProfile;
         var newId = currentId + "-copy";
-        var newName = profileComboBox.currentText + " (Copy)";
+        var newName = profileManager.currentProfileText + " (Copy)";
 
         var cloned = JSON.parse(JSON.stringify(root.activeProfileData));
         cloned.id = newId;
@@ -833,23 +450,90 @@ Kirigami.FormLayout {
 
         var payload = JSON.stringify(cloned);
         commandRunner.exec(`python3 "${root.helperScript}" save-profile "${newId}" --payload '${payload.replace(/'/g, "'\\''")}'`, (result) => {
-            root.refreshProfilesList(newId);
+            if (result.exitCode === 0) {
+                root.cfg_ActiveProfile = newId;
+                root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
+                root.refreshProfilesList(newId);
+            } else {
+                root.logMessage("ERROR", "Failed to duplicate profile: " + (result.stderr || result.stdout));
+            }
         });
     }
 
     function deleteCurrentProfile() {
-        var currentId = profileComboBox.currentValue;
-        if (!currentId || currentId === "default-aurora") return;
+        var currentId = profileManager.currentProfileId || root.cfg_ActiveProfile;
+        if (!currentId || profilesListModel.count <= 1) return;
+
+        var nextId = "";
+        var currentIndex = profileManager.currentProfileIndex;
+        if (currentIndex >= 0) {
+            if (currentIndex + 1 < profilesListModel.count) {
+                nextId = profilesListModel.get(currentIndex + 1).id;
+            } else if (currentIndex - 1 >= 0) {
+                nextId = profilesListModel.get(currentIndex - 1).id;
+            }
+        }
+        if (!nextId) {
+            for (var i = 0; i < profilesListModel.count; i++) {
+                var item = profilesListModel.get(i);
+                if (item.id !== currentId) {
+                    nextId = item.id;
+                    break;
+                }
+            }
+        }
 
         commandRunner.exec(`python3 "${root.helperScript}" delete-profile "${currentId}"`, (result) => {
-            root.refreshProfilesList("default-aurora");
+            if (result.exitCode === 0) {
+                root.cfg_ActiveProfile = nextId;
+                root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
+                root.refreshProfilesList(nextId);
+            } else {
+                root.logMessage("ERROR", "Failed to delete profile: " + (result.stderr || result.stdout));
+            }
+        });
+    }
+
+    function unpackHeicFile(cleanPath) {
+        root.logMessage("INFO", "heicImportDialog starting unpack on: " + cleanPath);
+        profileManager.isBusy = true;
+
+        commandRunner.exec(`python3 "${root.helperScript}" unpack-heic "${cleanPath}"`, (result) => {
+            profileManager.isBusy = false;
+            try {
+                var resp = JSON.parse(result.stdout);
+                if (resp.status === "success") {
+                    root.logMessage("INFO", "HEIC unpack succeeded, loading profile: " + resp.data.profileId);
+                    root.cfg_ActiveProfile = resp.data.profileId;
+                    root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
+                    root.refreshProfilesList(resp.data.profileId);
+                } else {
+                    root.logMessage("ERROR", "HEIC unpack failed: " + resp.error);
+                }
+            } catch (e) {
+                root.logMessage("ERROR", "Failed to parse unpack output: " + e + " (stdout=" + result.stdout + ")");
+            }
+        });
+    }
+
+    function packHeicFile(profileId, targetPath) {
+        profileManager.isBusy = true;
+        commandRunner.exec(`python3 "${root.helperScript}" pack-heic --profile "${profileId}" -o "${targetPath}"`, (result) => {
+            profileManager.isBusy = false;
+            try {
+                var resp = JSON.parse(result.stdout);
+                if (resp.status === "success") {
+                    root.logMessage("INFO", "Successfully exported HEIC to: " + resp.data.outputFile);
+                } else {
+                    root.logMessage("ERROR", "Pack error: " + resp.error);
+                }
+            } catch (e) {
+                root.logMessage("ERROR", "Failed to parse export output: " + e);
+            }
         });
     }
 
     Component.onCompleted: {
-        if (typeof parentLayout !== "undefined" && parentLayout) {
-            twinFormLayouts.push(parentLayout);
-        }
-        root.refreshProfilesList(activeProfileHolder.text || "default-aurora");
+        root.refreshProfilesList(root.cfg_ActiveProfile || "");
     }
 }

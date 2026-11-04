@@ -37,6 +37,7 @@ WallpaperItem {
 
     // Internal State
     property var activeProfile: null
+    property var sortedSlots: []
     property var currentSlot: null
     property string currentImagePath: ""
     property bool isInitialized: false
@@ -203,8 +204,13 @@ WallpaperItem {
     // -----------------------------------------------------------------------
 
     function logMessage(level, msg) {
-        console.log("[9to5-wallpaper] [" + level + "] " + msg);
-        commandRunner.exec(`python3 "${root.helperScript}" log --level "${level}" --source "Runtime" --message "${msg.replace(/"/g, '\\"')}"`);
+        if (level === "ERROR") {
+            console.error("[9to5-wallpaper] [" + level + "] " + msg);
+        } else if (level === "WARN") {
+            console.warn("[9to5-wallpaper] [" + level + "] " + msg);
+        } else {
+            console.log("[9to5-wallpaper] [" + level + "] " + msg);
+        }
     }
 
     function timeToMinutes(timeStr) {
@@ -215,9 +221,20 @@ WallpaperItem {
         return (hh * 60 + mm) % 1440;
     }
 
+    function sortProfileSlots() {
+        if (!root.activeProfile || !root.activeProfile.slots || root.activeProfile.slots.length === 0) {
+            root.sortedSlots = [];
+            return;
+        }
+        root.sortedSlots = root.activeProfile.slots.slice().sort((a, b) => {
+            return root.timeToMinutes(a.time) - root.timeToMinutes(b.time);
+        });
+    }
+
     function reloadProfile() {
         var profileId = root.cfgActiveProfile;
         root.currentSlot = null;
+        root.sortedSlots = [];
         root.currentImagePath = "";
 
         root.logMessage("INFO", "reloadProfile() requested for profile: " + profileId);
@@ -227,6 +244,7 @@ WallpaperItem {
                     var resp = JSON.parse(result.stdout);
                     if (resp.status === "success" && resp.data) {
                         root.activeProfile = resp.data;
+                        root.sortProfileSlots();
                         root.logMessage("INFO", "Active profile loaded successfully: " + root.activeProfile.id + " ('" + root.activeProfile.name + "') with " + (root.activeProfile.slots ? root.activeProfile.slots.length : 0) + " slots");
                         root.updateScheduledSlot(false);
                         return;
@@ -243,6 +261,7 @@ WallpaperItem {
                     var res = JSON.parse(initRes.stdout);
                     if (res.status === "success" && res.data && res.data.profile) {
                         root.activeProfile = res.data.profile;
+                        root.sortProfileSlots();
                         root.logMessage("INFO", "Default profile initialized with " + (root.activeProfile.slots ? root.activeProfile.slots.length : 0) + " slots");
                         root.updateScheduledSlot(false);
                     }
@@ -254,14 +273,12 @@ WallpaperItem {
     }
 
     function updateScheduledSlot(animate) {
-        if (!root.activeProfile || !root.activeProfile.slots || root.activeProfile.slots.length === 0) {
+        if (!root.sortedSlots || root.sortedSlots.length === 0) {
             console.warn("[9to5-wallpaper] updateScheduledSlot called but profile has no slots");
             return;
         }
 
-        var slots = root.activeProfile.slots.slice().sort((a, b) => {
-            return root.timeToMinutes(a.time) - root.timeToMinutes(b.time);
-        });
+        var slots = root.sortedSlots;
 
         var now = new Date();
         var currentMins = now.getHours() * 60 + now.getMinutes();
@@ -323,13 +340,11 @@ WallpaperItem {
     }
 
     function checkClockSync() {
-        if (!root.activeProfile || !root.activeProfile.slots || root.activeProfile.slots.length === 0) {
+        if (!root.sortedSlots || root.sortedSlots.length === 0) {
             return;
         }
 
-        var slots = root.activeProfile.slots.slice().sort((a, b) => {
-            return root.timeToMinutes(a.time) - root.timeToMinutes(b.time);
-        });
+        var slots = root.sortedSlots;
 
         var now = new Date();
         var currentMins = now.getHours() * 60 + now.getMinutes();

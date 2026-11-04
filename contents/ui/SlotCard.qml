@@ -22,13 +22,8 @@ Rectangle {
     signal pickImageRequested(int index)
 
     function i18nText(text) {
-        if (typeof i18nd !== "undefined") {
-            return i18nd("plasma_wallpaper_org.kde.plasma.9to5", text);
-        }
-        if (typeof i18n !== "undefined") {
-            return i18n(text);
-        }
-        return text;
+        return (typeof i18nd !== "undefined") ? i18nd("plasma_wallpaper_org.kde.plasma.9to5", text)
+             : (typeof i18n !== "undefined") ? i18n(text) : text;
     }
 
     // Parse time into hours and minutes
@@ -44,6 +39,7 @@ Rectangle {
     implicitWidth: Kirigami.Units.gridUnit * 10
     implicitHeight: Kirigami.Units.gridUnit * 14
 
+    clip: true
     color: dropArea.containsDrag ? Kirigami.Theme.alternateBackgroundColor : Kirigami.Theme.backgroundColor
     border.color: dropArea.containsDrag ? Kirigami.Theme.focusColor : Kirigami.ColorUtils.linearInterpolation(Kirigami.Theme.backgroundColor, Kirigami.Theme.textColor, 0.15)
     border.width: dropArea.containsDrag ? 2 : 1
@@ -62,8 +58,10 @@ Rectangle {
                 var cleanPath = decodeURIComponent(rawStr);
                 cardRoot.imageAssigned(cardRoot.slotIndex, cleanPath, cleanPath);
                 drop.accept();
-            } else if (drop.source && drop.source.imagePath) {
-                cardRoot.imageAssigned(cardRoot.slotIndex, drop.source.imagePath, drop.source.thumbPath || drop.source.imagePath);
+            } else if (drop.source && typeof drop.source.imagePath !== "undefined") {
+                var srcImg = drop.source.imagePath;
+                var srcThumb = drop.source.thumbPath || srcImg;
+                cardRoot.imageAssigned(cardRoot.slotIndex, srcImg, srcThumb);
                 drop.accept();
             }
         }
@@ -83,6 +81,8 @@ Rectangle {
                 icon.name: "go-previous"
                 display: QQC2.AbstractButton.IconOnly
                 enabled: cardRoot.slotIndex > 0
+                Layout.preferredWidth: Kirigami.Units.iconSizes.small * 1.4
+                Layout.preferredHeight: Layout.preferredWidth
                 QQC2.ToolTip.visible: hovered
                 QQC2.ToolTip.text: cardRoot.i18nText("Move earlier")
                 onClicked: cardRoot.moveLeftRequested(cardRoot.slotIndex)
@@ -91,7 +91,7 @@ Rectangle {
             QQC2.Label {
                 text: "#" + (cardRoot.slotIndex + 1)
                 font.bold: true
-                font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                font.pixelSize: Math.round(Kirigami.Units.gridUnit * 0.65)
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
                 opacity: 0.7
@@ -101,17 +101,35 @@ Rectangle {
                 icon.name: "go-next"
                 display: QQC2.AbstractButton.IconOnly
                 enabled: cardRoot.slotIndex < cardRoot.totalSlots - 1
+                Layout.preferredWidth: Kirigami.Units.iconSizes.small * 1.4
+                Layout.preferredHeight: Layout.preferredWidth
                 QQC2.ToolTip.visible: hovered
                 QQC2.ToolTip.text: cardRoot.i18nText("Move later")
                 onClicked: cardRoot.moveRightRequested(cardRoot.slotIndex)
             }
 
-            QQC2.ToolButton {
-                icon.name: "edit-delete-remove"
-                display: QQC2.AbstractButton.IconOnly
-                QQC2.ToolTip.visible: hovered
-                QQC2.ToolTip.text: cardRoot.i18nText("Remove slot")
-                onClicked: cardRoot.removeRequested(cardRoot.slotIndex)
+            Item {
+                Layout.preferredWidth: Kirigami.Units.iconSizes.small * 1.4
+                Layout.preferredHeight: Layout.preferredWidth
+
+                Kirigami.Icon {
+                    id: removeSlotIcon
+                    anchors.centerIn: parent
+                    width: Kirigami.Units.iconSizes.small
+                    height: width
+                    source: "edit-delete"
+                    opacity: removeSlotMouse.pressed ? 0.5 : (removeSlotMouse.containsMouse ? 1.0 : 0.7)
+                }
+
+                MouseArea {
+                    id: removeSlotMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    QQC2.ToolTip.visible: containsMouse
+                    QQC2.ToolTip.text: cardRoot.i18nText("Remove slot")
+                    onClicked: cardRoot.removeRequested(cardRoot.slotIndex)
+                }
             }
         }
 
@@ -149,7 +167,7 @@ Rectangle {
                 QQC2.Label {
                     Layout.alignment: Qt.AlignHCenter
                     text: cardRoot.i18nText("Choose Image")
-                    font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                    font.pixelSize: Math.round(Kirigami.Units.gridUnit * 0.65)
                     opacity: 0.6
                 }
             }
@@ -225,7 +243,7 @@ Rectangle {
             text: cardRoot.label
             placeholderText: cardRoot.i18nText("Label (optional)")
             horizontalAlignment: Text.AlignHCenter
-            font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+            font.pixelSize: Math.round(Kirigami.Units.gridUnit * 0.65)
 
             onEditingFinished: {
                 if (text !== cardRoot.label) {
