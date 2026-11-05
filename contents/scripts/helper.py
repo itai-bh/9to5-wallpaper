@@ -628,24 +628,78 @@ def cmd_save_profile(args):
 def cmd_sync_lockscreen(args):
     """Syncs 9to5 configuration into kscreenlockerrc for lock screen / wake-from-sleep parity."""
     base_cmd = ["kwriteconfig6", "--file", "kscreenlockerrc"]
-    subprocess.run(base_cmd + ["--group", "Greeter", "--key", "WallpaperPlugin", "org.kde.plasma.9to5"], check=False)
-
     grp = ["--group", "Greeter", "--group", "Wallpaper", "--group", "org.kde.plasma.9to5", "--group", "General"]
+
+    commands = [
+        base_cmd + ["--group", "Greeter", "--key", "WallpaperPlugin", "org.kde.plasma.9to5"]
+    ]
     if args.profile:
-        subprocess.run(base_cmd + grp + ["--key", "ActiveProfile", str(args.profile)], check=False)
+        commands.append(base_cmd + grp + ["--key", "ActiveProfile", str(args.profile)])
     if args.fill_mode is not None:
-        subprocess.run(base_cmd + grp + ["--key", "FillMode", str(args.fill_mode)], check=False)
+        commands.append(base_cmd + grp + ["--key", "FillMode", str(args.fill_mode)])
     if args.transitions is not None:
         val = "true" if str(args.transitions).lower() in ["true", "1", "yes"] else "false"
-        subprocess.run(base_cmd + grp + ["--key", "EnableTransitions", val], check=False)
+        commands.append(base_cmd + grp + ["--key", "EnableTransitions", val])
     if args.duration is not None:
-        subprocess.run(base_cmd + grp + ["--key", "TransitionDuration", str(args.duration)], check=False)
+        commands.append(base_cmd + grp + ["--key", "TransitionDuration", str(args.duration)])
     if args.fallback_color:
-        subprocess.run(base_cmd + grp + ["--key", "FallbackColor", str(args.fallback_color)], check=False)
+        commands.append(base_cmd + grp + ["--key", "FallbackColor", str(args.fallback_color)])
     if args.revision is not None:
-        subprocess.run(base_cmd + grp + ["--key", "ProfileRevision", str(args.revision)], check=False)
+        commands.append(base_cmd + grp + ["--key", "ProfileRevision", str(args.revision)])
+
+    for cmd in commands:
+        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if res.returncode != 0:
+            err_msg = (res.stderr or res.stdout or "").strip()
+            json_output(
+                "error",
+                "sync-lockscreen",
+                error=f"kwriteconfig6 failed (exit {res.returncode}): {err_msg}"
+            )
 
     json_output("success", "sync-lockscreen", data={"synced": True})
+
+
+def _resolve_sddm_theme_dir() -> Optional[Path]:
+    """Resolves the active SDDM theme directory if SDDM is installed/configured."""
+    config_files: List[Path] = []
+    etc_conf_d = Path("/etc/sddm.conf.d")
+    if etc_conf_d.is_dir():
+        config_files.extend(sorted(etc_conf_d.glob("*.conf"), reverse=True))
+    etc_conf = Path("/etc/sddm.conf")
+    if etc_conf.is_file():
+        config_files.append(etc_conf)
+    lib_conf_d = Path("/usr/lib/sddm/sddm.conf.d")
+    if lib_conf_d.is_dir():
+        config_files.extend(sorted(lib_conf_d.glob("*.conf"), reverse=True))
+
+    theme_name = ""
+    theme_dir_base = Path("/usr/share/sddm/themes")
+
+    for cfg in config_files:
+        if not theme_name:
+            res = subprocess.run(
+                ["kreadconfig6", "--file", str(cfg), "--group", "Theme", "--key", "Current"],
+                capture_output=True, text=True, check=False
+            )
+            val = (res.stdout or "").strip()
+            if val:
+                theme_name = val
+        res_dir = subprocess.run(
+            ["kreadconfig6", "--file", str(cfg), "--group", "Theme", "--key", "ThemeDir"],
+            capture_output=True, text=True, check=False
+        )
+        dir_val = (res_dir.stdout or "").strip()
+        if dir_val:
+            theme_dir_base = Path(dir_val)
+
+    if not theme_name:
+        theme_name = "breeze"
+
+    candidate = theme_dir_base / theme_name
+    if candidate.is_dir():
+        return candidate
+    return None
 
 
 def cmd_get_boot_wallpaper(args):
@@ -658,8 +712,23 @@ def cmd_get_boot_wallpaper(args):
         "--group", "org.kde.image",
         "--group", "General",
         "--key", "Image"
-    ], capture_output=True, text=True)
-    raw = res.stdout.strip()
+    ], capture_output=True, text=True, check=False)
+    raw = (res.stdout or "").strip()
+
+    if "9to5-boot" not in raw:
+        sddm_theme_dir = _resolve_sddm_theme_dir()
+        if sddm_theme_dir is not None:
+            theme_user_conf = sddm_theme_dir / "theme.conf.user"
+            if theme_user_conf.is_file():
+                sddm_res = subprocess.run([
+                    "kreadconfig6",
+                    "--file", str(theme_user_conf),
+                    "--group", "General",
+                    "--key", "background"
+                ], capture_output=True, text=True, check=False)
+                sddm_raw = (sddm_res.stdout or "").strip()
+                if "9to5-boot" in sddm_raw:
+                    raw = sddm_raw
 
     image_path = ""
     if "9to5-boot" in raw:
@@ -694,6 +763,8 @@ def cmd_get_boot_wallpaper(args):
                 p = Path(raw[7:])
                 if p.exists():
                     boot_img = p
+            elif Path(raw).is_absolute() and Path(raw).exists():
+                boot_img = Path(raw)
             if boot_img is None:
                 for candidate_name in ["boot.jpg", "boot.png", "boot.jpeg"]:
                     p = Path("/usr/share/wallpapers/9to5-boot") / candidate_name
@@ -731,7 +802,7 @@ def cmd_get_boot_wallpaper(args):
 
 
 def cmd_set_boot_wallpaper(args):
-    """Copies chosen image to system wallpaper path and updates /etc/plasmalogin.conf."""
+    """Copies chosen image to system wallpaper path and updates /etc/plasmalogin.conf and SDDM theme config."""
     raw_src = args.image
     if raw_src.startswith("file://"):
         raw_src = raw_src[7:]
@@ -764,7 +835,29 @@ def cmd_set_boot_wallpaper(args):
         "--group", "General",
         "--key", "Image",
         f"file://{target_img}"
-    ], capture_output=True, text=True)
+    ], capture_output=True, text=True, check=False)
+
+    sddm_res = None
+    sddm_theme_dir = _resolve_sddm_theme_dir()
+    if sddm_theme_dir is not None:
+        theme_user_conf = sddm_theme_dir / "theme.conf.user"
+        sddm_res = subprocess.run([
+            "kwriteconfig6",
+            "--file", str(theme_user_conf),
+            "--group", "General",
+            "--key", "background",
+            str(target_img)
+        ], capture_output=True, text=True, check=False)
+        if sddm_res.returncode == 0:
+            subprocess.run([
+                "kwriteconfig6",
+                "--file", str(theme_user_conf),
+                "--group", "General",
+                "--key", "type",
+                "image"
+            ], capture_output=True, text=True, check=False)
+            if theme_user_conf.exists():
+                theme_user_conf.chmod(0o644)
 
     if args.user_marker:
         raw_marker = args.user_marker
@@ -774,19 +867,35 @@ def cmd_set_boot_wallpaper(args):
             m_path = Path(raw_marker)
             m_path.parent.mkdir(parents=True, exist_ok=True)
             m_path.write_text(str(src), encoding="utf-8")
-            m_path.chmod(0o666)
+            uid = os.environ.get("PKEXEC_UID")
+            if uid and uid.isdigit():
+                os.chown(m_path, int(uid), -1)
+            m_path.chmod(0o644)
         except Exception as e:
             logger.warning(f"Failed to write user marker: {e}")
+
+    if res.returncode != 0:
+        json_output(
+            "error",
+            "set-boot-wallpaper",
+            error=f"kwriteconfig6 failed (exit {res.returncode}): {(res.stderr or '').strip()}"
+        )
+    if sddm_res is not None and sddm_res.returncode != 0:
+        json_output(
+            "error",
+            "set-boot-wallpaper",
+            error=f"SDDM kwriteconfig6 failed (exit {sddm_res.returncode}): {(sddm_res.stderr or '').strip()}"
+        )
 
     json_output("success", "set-boot-wallpaper", data={
         "source": str(src),
         "target": str(target_img),
-        "configUpdated": (res.returncode == 0)
+        "configUpdated": True
     })
 
 
 def cmd_remove_boot_wallpaper(args):
-    """Removes 9to5 boot wallpaper from /etc/plasmalogin.conf, system dir, and marker."""
+    """Removes 9to5 boot wallpaper from /etc/plasmalogin.conf, SDDM theme config, system dir, and marker."""
     res = subprocess.run([
         "kwriteconfig6",
         "--file", "/etc/plasmalogin.conf",
@@ -795,9 +904,21 @@ def cmd_remove_boot_wallpaper(args):
         "--group", "org.kde.image",
         "--group", "General",
         "--key", "Image",
-        "--delete",
-        ""
-    ], capture_output=True, text=True)
+        "--delete"
+    ], capture_output=True, text=True, check=False)
+
+    sddm_res = None
+    sddm_theme_dir = _resolve_sddm_theme_dir()
+    if sddm_theme_dir is not None:
+        theme_user_conf = sddm_theme_dir / "theme.conf.user"
+        if theme_user_conf.is_file():
+            sddm_res = subprocess.run([
+                "kwriteconfig6",
+                "--file", str(theme_user_conf),
+                "--group", "General",
+                "--key", "background",
+                "--delete"
+            ], capture_output=True, text=True, check=False)
 
     target_dir = Path("/usr/share/wallpapers/9to5-boot")
     if target_dir.exists():
@@ -817,9 +938,22 @@ def cmd_remove_boot_wallpaper(args):
         except Exception as e:
             logger.warning(f"Failed to remove user marker '{raw_marker}': {e}")
 
+    if res.returncode != 0:
+        json_output(
+            "error",
+            "remove-boot-wallpaper",
+            error=f"kwriteconfig6 failed (exit {res.returncode}): {(res.stderr or '').strip()}"
+        )
+    if sddm_res is not None and sddm_res.returncode != 0:
+        json_output(
+            "error",
+            "remove-boot-wallpaper",
+            error=f"SDDM kwriteconfig6 failed (exit {sddm_res.returncode}): {(sddm_res.stderr or '').strip()}"
+        )
+
     json_output("success", "remove-boot-wallpaper", data={
         "removed": True,
-        "configUpdated": (res.returncode == 0)
+        "configUpdated": True
     })
 
 

@@ -35,20 +35,21 @@ A dynamic, time-based wallpaper plugin for **KDE Plasma 6**, providing native ma
 
 - **KDE Plasma:** 6.0 or higher
 - **Python:** 3.8+ (used by backend helper for metadata parsing)
+- **ImageMagick:** 7.0+ (`ImageMagick` / `imagemagick`, provides the `magick` executable required by `init-defaults` to generate the default profile)
 - **Optional (for HEIC unpack/pack):** `libheif-tools` / `libheif-examples` (provides `heif-enc` and `heif-convert`)
 
 On Fedora:
 ```bash
-sudo dnf install python3 libheif-tools
+sudo dnf install python3 ImageMagick libheif-tools
 ```
 On Ubuntu / Debian:
 ```bash
-sudo apt install python3 libheif-examples
+sudo apt install python3 imagemagick libheif-examples
 ```
 
 On Arch Linux:
 ```bash
-sudo pacman -S python libheif
+sudo pacman -S python imagemagick libheif
 ```
 
 ---
@@ -61,15 +62,15 @@ sudo pacman -S python libheif
 3. Search for **9to5 Wallpaper** and click **Install**.
 
 ### Manual Installation (From Release Archive)
-Download `org.kde.plasma.9to5-1.0.0.tar.gz` from Releases and install via `kpackagetool6`:
+Download `org.kde.plasma.9to5-1.1.0.tar.gz` from Releases and install via `kpackagetool6`:
 ```bash
-kpackagetool6 --type Plasma/Wallpaper -i org.kde.plasma.9to5-1.0.0.tar.gz
+kpackagetool6 --type Plasma/Wallpaper -i org.kde.plasma.9to5-1.1.0.tar.gz
 ```
 
 ### From Source
 Clone the repository and run the install script:
 ```bash
-git clone https://github.com/<your-username>/9to5-wallpaper.git
+git clone https://github.com/itai-bh/9to5-wallpaper.git
 cd 9to5-wallpaper
 ./install.sh
 ```

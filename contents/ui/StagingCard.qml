@@ -57,7 +57,7 @@ Rectangle {
             anchors.margins: 2
             text: root.fileName || root.imagePath.split("/").pop()
             elide: Text.ElideMiddle
-            font.pointSize: (font.pointSize > 0) ? Math.round(font.pointSize * 0.9) : 9
+            font.pointSize: Kirigami.Theme.defaultFont.pointSize > 0 ? Math.round(Kirigami.Theme.defaultFont.pointSize * 0.9) : 9
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }

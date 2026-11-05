@@ -120,7 +120,7 @@ WallpaperItem {
         var path = decodeURIComponent(rawStr);
         if (path.toLowerCase().endsWith(".heic")) {
             console.log("[9to5-wallpaper] Importing dropped HEIC dynamic wallpaper:", path);
-            commandRunner.exec(`python3 "${root.helperScript}" unpack-heic "${path}"`, (result) => {
+            commandRunner.exec(`python3 ${root.shq(root.helperScript)} unpack-heic ${root.shq(path)}`, (result) => {
                 try {
                     var resp = JSON.parse(result.stdout);
                     if (resp.status === "success" && root.cfg) {
@@ -203,6 +203,10 @@ WallpaperItem {
     // Core Logic Functions
     // -----------------------------------------------------------------------
 
+    function shq(s) {
+        return "'" + String(s).replace(/'/g, "'\\''") + "'";
+    }
+
     function logMessage(level, msg) {
         if (level === "ERROR") {
             console.error("[9to5-wallpaper] [" + level + "] " + msg);
@@ -233,7 +237,8 @@ WallpaperItem {
 
     function tryLoadSynchronousProfile(profileId) {
         try {
-            var profileUrl = "file://" + root.profilesDir + "/" + profileId + ".json";
+            var baseUrl = root.profilesDir.indexOf("file://") === 0 ? root.profilesDir : ("file://" + root.profilesDir);
+            var profileUrl = baseUrl + "/" + encodeURIComponent(profileId) + ".json";
             var xhr = new XMLHttpRequest();
             xhr.open("GET", profileUrl, false);
             xhr.send();
@@ -263,7 +268,7 @@ WallpaperItem {
             root.currentImagePath = "";
         }
 
-        commandRunner.exec(`python3 "${root.helperScript}" get-profile "${profileId}"`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} get-profile ${root.shq(profileId)}`, (result) => {
             if (result.exitCode === 0 && result.stdout.trim().length > 0) {
                 try {
                     var resp = JSON.parse(result.stdout);
@@ -281,7 +286,7 @@ WallpaperItem {
 
             // Fallback to bootstrap defaults
             root.logMessage("WARN", "Profile '" + profileId + "' unavailable, initializing defaults...");
-            commandRunner.exec(`python3 "${root.helperScript}" init-defaults`, (initRes) => {
+            commandRunner.exec(`python3 ${root.shq(root.helperScript)} init-defaults`, (initRes) => {
                 try {
                     var res = JSON.parse(initRes.stdout);
                     if (res.status === "success" && res.data && res.data.profile) {

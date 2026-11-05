@@ -70,7 +70,7 @@ ColumnLayout {
                 { text: trackRoot.i18nText("2-Stage (Day / Night)"), value: "2stage" },
                 { text: trackRoot.i18nText("4-Stage (Dawn / Noon / Dusk / Night)"), value: "4stage" },
                 { text: trackRoot.i18nText("8-Stage (3-hour intervals)"), value: "8stage" },
-                { text: trackRoot.i18nText("16-Stage (Hourly cycle)"), value: "16stage" }
+                { text: trackRoot.i18nText("16-Stage (90-minute intervals)"), value: "16stage" }
             ]
             textRole: "text"
             valueRole: "value"

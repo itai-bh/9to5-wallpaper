@@ -65,9 +65,13 @@ ColumnLayout {
         }
     }
 
+    function shq(s) {
+        return "'" + String(s).replace(/'/g, "'\\''") + "'";
+    }
+
     function logMessage(level, msg) {
         console.log("[9to5-wallpaper] [" + level + "] " + msg);
-        commandRunner.exec(`python3 "${root.helperScript}" log --level "${level}" --message "${msg.replace(/"/g, '\\"')}"`);
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} log --level ${root.shq(level)} --message ${root.shq(msg)}`);
     }
 
     function saveConfig() {
@@ -84,7 +88,7 @@ ColumnLayout {
         var fallbackColor = root.cfg_FallbackColor ? root.cfg_FallbackColor.toString() : "#1e1e2e";
         var revision = root.cfg_ProfileRevision;
 
-        var cmd = `python3 "${root.helperScript}" sync-lockscreen --profile "${pId}" --fill-mode ${fillMode} --transitions ${transitions} --duration ${duration} --fallback-color "${fallbackColor}" --revision ${revision}`;
+        var cmd = `python3 ${root.shq(root.helperScript)} sync-lockscreen --profile ${root.shq(pId)} --fill-mode ${root.shq(fillMode)} --transitions ${root.shq(transitions)} --duration ${root.shq(duration)} --fallback-color ${root.shq(fallbackColor)} --revision ${root.shq(revision)}`;
         commandRunner.exec(cmd, (res) => {
             if (res.exitCode === 0) {
                 root.logMessage("INFO", "Lock screen configuration synchronized successfully");
@@ -95,7 +99,7 @@ ColumnLayout {
     }
 
     function refreshBootWallpaper() {
-        commandRunner.exec(`python3 "${root.helperScript}" get-boot-wallpaper --user-marker "${root.bootMarkerFile}"`, (res) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} get-boot-wallpaper --user-marker ${root.shq(root.bootMarkerFile)}`, (res) => {
             if (res.exitCode === 0 && res.stdout.trim().length > 0) {
                 try {
                     var resp = JSON.parse(res.stdout);
@@ -119,7 +123,7 @@ ColumnLayout {
         }
         var cleanImg = imagePath.replace("file://", "");
         root.logMessage("INFO", "Requesting root permission to apply boot wallpaper: " + cleanImg);
-        var cmd = `pkexec python3 "${root.helperScript}" set-boot-wallpaper "${cleanImg}" --user-marker "${root.bootMarkerFile}"`;
+        var cmd = `pkexec python3 ${root.shq(root.helperScript)} set-boot-wallpaper ${root.shq(cleanImg)} --user-marker ${root.shq(root.bootMarkerFile)}`;
         commandRunner.exec(cmd, (res) => {
             if (res.exitCode === 0) {
                 root.currentBootWallpaperPath = cleanImg;
@@ -132,7 +136,7 @@ ColumnLayout {
 
     function removeBootWallpaper() {
         root.logMessage("INFO", "Requesting root permission to remove boot wallpaper");
-        var cmd = `pkexec python3 "${root.helperScript}" remove-boot-wallpaper --user-marker "${root.bootMarkerFile}"`;
+        var cmd = `pkexec python3 ${root.shq(root.helperScript)} remove-boot-wallpaper --user-marker ${root.shq(root.bootMarkerFile)}`;
         commandRunner.exec(cmd, (res) => {
             if (res.exitCode === 0) {
                 root.currentBootWallpaperPath = "";
@@ -320,7 +324,7 @@ ColumnLayout {
 
     function refreshProfilesList(selectProfileId) {
         root.isRefreshing = true;
-        commandRunner.exec(`python3 "${root.helperScript}" list-profiles`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} list-profiles`, (result) => {
             try {
                 var resp = JSON.parse(result.stdout);
                 if (resp.status === "success") {
@@ -356,7 +360,7 @@ ColumnLayout {
     }
 
     function loadActiveProfile(profileId) {
-        commandRunner.exec(`python3 "${root.helperScript}" get-profile "${profileId}"`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} get-profile ${root.shq(profileId)}`, (result) => {
             if (result.exitCode === 0 && result.stdout.trim().length > 0) {
                 try {
                     var resp = JSON.parse(result.stdout);
@@ -412,7 +416,7 @@ ColumnLayout {
             root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
         }
         root.logMessage("INFO", "Saving active profile '" + profileId + "' with " + slots.length + " slots (bumpRevision=" + (bumpRevision ? "true" : "false") + ")");
-        commandRunner.exec(`python3 "${root.helperScript}" save-profile "${profileId}" --payload '${payload.replace(/'/g, "'\\''")}'`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} save-profile ${root.shq(profileId)} --payload ${root.shq(payload)}`, (result) => {
             if (result.exitCode === 0) {
                 root.logMessage("INFO", "Profile '" + profileId + "' saved successfully to disk");
             } else {
@@ -499,7 +503,15 @@ ColumnLayout {
     }
 
     function createNewProfile(name) {
-        var newId = ProfileLogic.sanitizeProfileId(name);
+        var baseId = ProfileLogic.sanitizeProfileId(name);
+        var newId = baseId;
+        var n = 2;
+        var exists = function(id) {
+            for (var i = 0; i < profilesListModel.count; i++)
+                if (profilesListModel.get(i).id === id) return true;
+            return false;
+        };
+        while (exists(newId)) newId = baseId + "-" + (n++);
         var newObj = {
             id: newId,
             name: name,
@@ -512,7 +524,7 @@ ColumnLayout {
         };
 
         var payload = JSON.stringify(newObj);
-        commandRunner.exec(`python3 "${root.helperScript}" save-profile "${newId}" --payload '${payload.replace(/'/g, "'\\''")}'`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} save-profile ${root.shq(newId)} --payload ${root.shq(payload)}`, (result) => {
             if (result.exitCode === 0) {
                 root.cfg_ActiveProfile = newId;
                 root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
@@ -526,7 +538,15 @@ ColumnLayout {
     function duplicateCurrentProfile() {
         if (!root.activeProfileData) return;
         var currentId = profileManager.currentProfileId || root.cfg_ActiveProfile;
-        var newId = currentId + "-copy";
+        var baseId = currentId + "-copy";
+        var newId = baseId;
+        var n = 2;
+        var exists = function(id) {
+            for (var i = 0; i < profilesListModel.count; i++)
+                if (profilesListModel.get(i).id === id) return true;
+            return false;
+        };
+        while (exists(newId)) newId = baseId + "-" + (n++);
         var newName = profileManager.currentProfileText + " (Copy)";
 
         var cloned = JSON.parse(JSON.stringify(root.activeProfileData));
@@ -534,7 +554,7 @@ ColumnLayout {
         cloned.name = newName;
 
         var payload = JSON.stringify(cloned);
-        commandRunner.exec(`python3 "${root.helperScript}" save-profile "${newId}" --payload '${payload.replace(/'/g, "'\\''")}'`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} save-profile ${root.shq(newId)} --payload ${root.shq(payload)}`, (result) => {
             if (result.exitCode === 0) {
                 root.cfg_ActiveProfile = newId;
                 root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
@@ -568,7 +588,7 @@ ColumnLayout {
             }
         }
 
-        commandRunner.exec(`python3 "${root.helperScript}" delete-profile "${currentId}"`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} delete-profile ${root.shq(currentId)}`, (result) => {
             if (result.exitCode === 0) {
                 root.cfg_ActiveProfile = nextId;
                 root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
@@ -583,7 +603,7 @@ ColumnLayout {
         root.logMessage("INFO", "heicImportDialog starting unpack on: " + cleanPath);
         profileManager.isBusy = true;
 
-        commandRunner.exec(`python3 "${root.helperScript}" unpack-heic "${cleanPath}"`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} unpack-heic ${root.shq(cleanPath)}`, (result) => {
             profileManager.isBusy = false;
             try {
                 var resp = JSON.parse(result.stdout);
@@ -603,7 +623,7 @@ ColumnLayout {
 
     function packHeicFile(profileId, targetPath) {
         profileManager.isBusy = true;
-        commandRunner.exec(`python3 "${root.helperScript}" pack-heic --profile "${profileId}" -o "${targetPath}"`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} pack-heic --profile ${root.shq(profileId)} -o ${root.shq(targetPath)}`, (result) => {
             profileManager.isBusy = false;
             try {
                 var resp = JSON.parse(result.stdout);
@@ -621,6 +641,5 @@ ColumnLayout {
     Component.onCompleted: {
         root.refreshProfilesList(root.cfg_ActiveProfile || "");
         root.refreshBootWallpaper();
-        root.syncLockscreen();
     }
 }
