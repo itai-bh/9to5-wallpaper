@@ -663,12 +663,12 @@ def cmd_sync_lockscreen(args):
 def _resolve_sddm_theme_dir() -> Optional[Path]:
     """Resolves the active SDDM theme directory if SDDM is installed/configured."""
     config_files: List[Path] = []
-    etc_conf_d = Path("/etc/sddm.conf.d")
-    if etc_conf_d.is_dir():
-        config_files.extend(sorted(etc_conf_d.glob("*.conf"), reverse=True))
     etc_conf = Path("/etc/sddm.conf")
     if etc_conf.is_file():
         config_files.append(etc_conf)
+    etc_conf_d = Path("/etc/sddm.conf.d")
+    if etc_conf_d.is_dir():
+        config_files.extend(sorted(etc_conf_d.glob("*.conf"), reverse=True))
     lib_conf_d = Path("/usr/lib/sddm/sddm.conf.d")
     if lib_conf_d.is_dir():
         config_files.extend(sorted(lib_conf_d.glob("*.conf"), reverse=True))
@@ -809,7 +809,8 @@ def cmd_set_boot_wallpaper(args):
     raw_src = args.image
     if raw_src.startswith("file://"):
         raw_src = raw_src[7:]
-    src = Path(raw_src).resolve()
+    selected_path = os.path.normpath(os.path.abspath(raw_src))
+    src = Path(selected_path).resolve()
     if not src.exists() or not src.is_file():
         json_output("error", "set-boot-wallpaper", error=f"Image file '{src}' does not exist")
 
@@ -821,10 +822,10 @@ def cmd_set_boot_wallpaper(args):
     target_img.chmod(0o644)
     target_dir.chmod(0o755)
 
-    # Write system-level source marker
+    # Write system-level source marker (preserve selected slot path before symlink resolution)
     try:
         sys_marker = target_dir / "source_path.txt"
-        sys_marker.write_text(str(src), encoding="utf-8")
+        sys_marker.write_text(selected_path, encoding="utf-8")
         sys_marker.chmod(0o644)
     except Exception as e:
         logger.warning(f"Failed to write system source marker: {e}")
@@ -869,7 +870,7 @@ def cmd_set_boot_wallpaper(args):
         try:
             m_path = Path(raw_marker)
             m_path.parent.mkdir(parents=True, exist_ok=True)
-            m_path.write_text(str(src), encoding="utf-8")
+            m_path.write_text(selected_path, encoding="utf-8")
             uid = os.environ.get("PKEXEC_UID")
             if uid and uid.isdigit():
                 os.chown(m_path, int(uid), -1)
@@ -891,7 +892,7 @@ def cmd_set_boot_wallpaper(args):
         )
 
     json_output("success", "set-boot-wallpaper", data={
-        "source": str(src),
+        "source": selected_path,
         "target": str(target_img),
         "configUpdated": True
     })

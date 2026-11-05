@@ -74,20 +74,33 @@ ColumnLayout {
         commandRunner.exec(`python3 ${root.shq(root.helperScript)} log --level ${root.shq(level)} --message ${root.shq(msg)}`);
     }
 
-    function saveConfig() {
-        root.logMessage("INFO", "saveConfig() invoked by Plasma System Settings. Committing profile: " + root.cfg_ActiveProfile);
-        root.saveActiveProfile(false, root.syncLockscreen);
+    function buildSyncLockscreenCommand(snapshot) {
+        var s = snapshot || {
+            profileId: profileManager.currentProfileId || root.cfg_ActiveProfile,
+            fillMode: root.cfg_FillMode,
+            transitions: root.cfg_EnableTransitions ? "true" : "false",
+            duration: root.cfg_TransitionDuration,
+            fallbackColor: root.cfg_FallbackColor ? root.cfg_FallbackColor.toString() : "#1e1e2e",
+            revision: root.cfg_ProfileRevision
+        };
+        return `python3 ${root.shq(root.helperScript)} sync-lockscreen --profile ${root.shq(s.profileId)} --fill-mode ${root.shq(s.fillMode)} --transitions ${root.shq(s.transitions)} --duration ${root.shq(s.duration)} --fallback-color ${root.shq(s.fallbackColor)} --revision ${root.shq(s.revision)}`;
     }
 
-    function syncLockscreen() {
-        var pId = profileManager.currentProfileId || root.cfg_ActiveProfile;
-        var fillMode = root.cfg_FillMode;
-        var transitions = root.cfg_EnableTransitions ? "true" : "false";
-        var duration = root.cfg_TransitionDuration;
-        var fallbackColor = root.cfg_FallbackColor ? root.cfg_FallbackColor.toString() : "#1e1e2e";
-        var revision = root.cfg_ProfileRevision;
+    function saveConfig() {
+        var snapshot = {
+            profileId: profileManager.currentProfileId || root.cfg_ActiveProfile,
+            fillMode: root.cfg_FillMode,
+            transitions: root.cfg_EnableTransitions ? "true" : "false",
+            duration: root.cfg_TransitionDuration,
+            fallbackColor: root.cfg_FallbackColor ? root.cfg_FallbackColor.toString() : "#1e1e2e",
+            revision: root.cfg_ProfileRevision
+        };
+        root.logMessage("INFO", "saveConfig() invoked by Plasma System Settings. Committing profile: " + snapshot.profileId);
+        root.saveActiveProfile(false, null, snapshot);
+    }
 
-        var cmd = `python3 ${root.shq(root.helperScript)} sync-lockscreen --profile ${root.shq(pId)} --fill-mode ${root.shq(fillMode)} --transitions ${root.shq(transitions)} --duration ${root.shq(duration)} --fallback-color ${root.shq(fallbackColor)} --revision ${root.shq(revision)}`;
+    function syncLockscreen(snapshot) {
+        var cmd = root.buildSyncLockscreenCommand(snapshot);
         commandRunner.exec(cmd, (res) => {
             if (res.exitCode === 0) {
                 root.logMessage("INFO", "Lock screen configuration synchronized successfully");
@@ -384,12 +397,12 @@ ColumnLayout {
         });
     }
 
-    function saveActiveProfile(bumpRevision, onSaved) {
+    function saveActiveProfile(bumpRevision, onSaved, syncSnapshot) {
         if (bumpRevision === undefined) {
             bumpRevision = true;
         }
 
-        var profileId = profileManager.currentProfileId || root.cfg_ActiveProfile;
+        var profileId = (syncSnapshot && syncSnapshot.profileId) ? syncSnapshot.profileId : (profileManager.currentProfileId || root.cfg_ActiveProfile);
         if (!profileId) return;
 
         var slots = [];
@@ -411,15 +424,19 @@ ColumnLayout {
         };
 
         var payload = JSON.stringify(profileObj);
-        if (bumpRevision) {
-            root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
-        }
         root.logMessage("INFO", "Saving active profile '" + profileId + "' with " + slots.length + " slots (bumpRevision=" + (bumpRevision ? "true" : "false") + ")");
-        commandRunner.exec(`python3 ${root.shq(root.helperScript)} save-profile ${root.shq(profileId)} --payload ${root.shq(payload)}`, (result) => {
+        var cmd = `python3 ${root.shq(root.helperScript)} save-profile ${root.shq(profileId)} --payload ${root.shq(payload)}`;
+        if (syncSnapshot) {
+            cmd += " && " + root.buildSyncLockscreenCommand(syncSnapshot);
+        }
+        commandRunner.exec(cmd, (result) => {
             if (result.exitCode === 0) {
+                if (bumpRevision) {
+                    root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
+                }
                 root.logMessage("INFO", "Profile '" + profileId + "' saved successfully to disk");
                 if (onSaved && typeof onSaved === "function") {
-                    onSaved();
+                    onSaved(syncSnapshot);
                 }
             } else {
                 root.logMessage("ERROR", "Failed to save profile '" + profileId + "': " + (result.stderr || result.stdout));

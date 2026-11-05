@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PACKAGE_ID="org.kde.plasma.9to5"
 
 echo "Installing KDE Plasma wallpaper extension: ${PACKAGE_ID} (9to5-wallpaper)"

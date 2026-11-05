@@ -40,6 +40,7 @@ WallpaperItem {
     property var sortedSlots: []
     property var currentSlot: null
     property string currentImagePath: ""
+    property int appliedProfileRevision: -1
     property bool isInitialized: false
 
     // Base background fallback
@@ -354,10 +355,12 @@ WallpaperItem {
         // 3. Apply active image
         root.currentSlot = selectedSlot;
         var targetSource = selectedSlot.imagePath ? ("file://" + selectedSlot.imagePath) : "";
+        var revisionChanged = (root.appliedProfileRevision !== root.cfgProfileRevision);
+        root.appliedProfileRevision = root.cfgProfileRevision;
 
         if (!root.isInitialized || !animate || !root.cfgEnableTransitions || root.cfgTransitionDuration <= 0) {
             root.isInitialized = true;
-            if (targetSource !== root.currentImagePath || primaryImage.source.toString() !== targetSource) {
+            if (revisionChanged || targetSource !== root.currentImagePath || primaryImage.source.toString() !== targetSource) {
                 console.log("[9to5-wallpaper] Displaying image immediately (no animation):", targetSource);
                 primaryImage.source = "";
                 primaryImage.source = targetSource;
@@ -366,7 +369,7 @@ WallpaperItem {
             secondaryImage.source = "";
             secondaryImage.opacity = 0.0;
             root.currentImagePath = targetSource;
-        } else if (targetSource !== root.currentImagePath) {
+        } else if (revisionChanged || targetSource !== root.currentImagePath) {
             console.log("[9to5-wallpaper] Crossfading to new image:", targetSource);
             secondaryImage.source = targetSource;
             opacityAnimator.restart();

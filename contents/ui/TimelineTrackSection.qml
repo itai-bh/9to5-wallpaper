@@ -29,6 +29,11 @@ ColumnLayout {
              : (typeof i18n !== "undefined") ? i18n(text) : text;
     }
 
+    function normalizePath(p) {
+        if (!p) return "";
+        return String(p).replace(/^file:\/\//, "").replace(/\/+$/, "");
+    }
+
     QQC2.Label {
         text: trackRoot.i18nText("Timeline")
         font.bold: true
@@ -109,7 +114,7 @@ ColumnLayout {
             label: model.label || ""
             imagePath: model.imagePath || ""
             thumbPath: model.thumbPath || ""
-            isBootWallpaper: (trackRoot.bootWallpaperPath.length > 0 && model.imagePath && trackRoot.bootWallpaperPath === model.imagePath.replace("file://", ""))
+            isBootWallpaper: (trackRoot.bootWallpaperPath.length > 0 && Boolean(model.imagePath) && trackRoot.normalizePath(trackRoot.bootWallpaperPath) === trackRoot.normalizePath(model.imagePath))
 
             onSlotTimeEdited: (idx, newTime) => trackRoot.slotTimeEdited(idx, newTime)
             onSlotLabelEdited: (idx, newLabel) => trackRoot.slotLabelEdited(idx, newLabel)
