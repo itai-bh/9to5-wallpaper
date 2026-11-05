@@ -262,11 +262,13 @@ WallpaperItem {
         var profileId = root.cfgActiveProfile;
         root.logMessage("INFO", "reloadProfile() requested for profile: " + profileId);
 
-        if (!root.tryLoadSynchronousProfile(profileId)) {
-            root.currentSlot = null;
-            root.sortedSlots = [];
-            root.currentImagePath = "";
+        if (root.tryLoadSynchronousProfile(profileId)) {
+            return;
         }
+
+        root.currentSlot = null;
+        root.sortedSlots = [];
+        root.currentImagePath = "";
 
         commandRunner.exec(`python3 ${root.shq(root.helperScript)} get-profile ${root.shq(profileId)}`, (result) => {
             if (result.exitCode === 0 && result.stdout.trim().length > 0) {
@@ -355,9 +357,11 @@ WallpaperItem {
 
         if (!root.isInitialized || !animate || !root.cfgEnableTransitions || root.cfgTransitionDuration <= 0) {
             root.isInitialized = true;
-            console.log("[9to5-wallpaper] Displaying image immediately (no animation):", targetSource);
-            primaryImage.source = "";
-            primaryImage.source = targetSource;
+            if (targetSource !== root.currentImagePath || primaryImage.source.toString() !== targetSource) {
+                console.log("[9to5-wallpaper] Displaying image immediately (no animation):", targetSource);
+                primaryImage.source = "";
+                primaryImage.source = targetSource;
+            }
             primaryImage.opacity = 1.0;
             secondaryImage.source = "";
             secondaryImage.opacity = 0.0;

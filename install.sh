@@ -9,13 +9,17 @@ echo "Installing KDE Plasma wallpaper extension: ${PACKAGE_ID} (9to5-wallpaper)"
 # Remove the symlink left by the previous installer. Do not follow it.
 USER_DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
 USER_PKG_ROOT="${USER_DATA_HOME}/plasma/wallpapers"
-LEGACY_LINK="${USER_PKG_ROOT}/${PACKAGE_ID}"
-if [ -L "${LEGACY_LINK}" ]; then
-    rm -- "${LEGACY_LINK}"
-fi
+USER_PKG_DIR="${USER_PKG_ROOT}/${PACKAGE_ID}"
+FIXED_LEGACY_LINK="${HOME}/.local/share/plasma/wallpapers/${PACKAGE_ID}"
+
+for link_path in "${FIXED_LEGACY_LINK}" "${USER_PKG_DIR}"; do
+    if [ -L "${link_path}" ]; then
+        rm -- "${link_path}"
+    fi
+done
 
 # Check if already installed in the writable user package root, upgrade or install cleanly via kpackagetool6
-if [ -d "${LEGACY_LINK}" ] && kpackagetool6 --type Plasma/Wallpaper --package-root "${USER_PKG_ROOT}" --show "${PACKAGE_ID}" >/dev/null 2>&1; then
+if kpackagetool6 --type Plasma/Wallpaper --packageroot "${USER_PKG_ROOT}" --show "${USER_PKG_DIR}" >/dev/null 2>&1; then
     echo "Upgrading existing package..."
     kpackagetool6 --type Plasma/Wallpaper -u "${SCRIPT_DIR}"
 else

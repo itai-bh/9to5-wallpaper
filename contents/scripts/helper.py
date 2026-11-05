@@ -675,6 +675,7 @@ def _resolve_sddm_theme_dir() -> Optional[Path]:
 
     theme_name = ""
     theme_dir_base = Path("/usr/share/sddm/themes")
+    theme_dir_found = False
 
     for cfg in config_files:
         if not theme_name:
@@ -685,13 +686,15 @@ def _resolve_sddm_theme_dir() -> Optional[Path]:
             val = (res.stdout or "").strip()
             if val:
                 theme_name = val
-        res_dir = subprocess.run(
-            ["kreadconfig6", "--file", str(cfg), "--group", "Theme", "--key", "ThemeDir"],
-            capture_output=True, text=True, check=False
-        )
-        dir_val = (res_dir.stdout or "").strip()
-        if dir_val:
-            theme_dir_base = Path(dir_val)
+        if not theme_dir_found:
+            res_dir = subprocess.run(
+                ["kreadconfig6", "--file", str(cfg), "--group", "Theme", "--key", "ThemeDir"],
+                capture_output=True, text=True, check=False
+            )
+            dir_val = (res_dir.stdout or "").strip()
+            if dir_val:
+                theme_dir_base = Path(dir_val)
+                theme_dir_found = True
 
     if not theme_name:
         theme_name = "breeze"
