@@ -109,7 +109,7 @@ ColumnLayout {
             label: model.label || ""
             imagePath: model.imagePath || ""
             thumbPath: model.thumbPath || ""
-            isBootWallpaper: (trackRoot.bootWallpaperPath.length > 0 && model.imagePath && trackRoot.bootWallpaperPath === model.imagePath)
+            isBootWallpaper: (trackRoot.bootWallpaperPath.length > 0 && model.imagePath && trackRoot.bootWallpaperPath === model.imagePath.replace("file://", ""))
 
             onSlotTimeEdited: (idx, newTime) => trackRoot.slotTimeEdited(idx, newTime)
             onSlotLabelEdited: (idx, newLabel) => trackRoot.slotLabelEdited(idx, newLabel)

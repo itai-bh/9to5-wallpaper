@@ -76,8 +76,7 @@ ColumnLayout {
 
     function saveConfig() {
         root.logMessage("INFO", "saveConfig() invoked by Plasma System Settings. Committing profile: " + root.cfg_ActiveProfile);
-        root.saveActiveProfile(false);
-        root.syncLockscreen();
+        root.saveActiveProfile(false, root.syncLockscreen);
     }
 
     function syncLockscreen() {
@@ -385,7 +384,7 @@ ColumnLayout {
         });
     }
 
-    function saveActiveProfile(bumpRevision) {
+    function saveActiveProfile(bumpRevision, onSaved) {
         if (bumpRevision === undefined) {
             bumpRevision = true;
         }
@@ -419,6 +418,9 @@ ColumnLayout {
         commandRunner.exec(`python3 ${root.shq(root.helperScript)} save-profile ${root.shq(profileId)} --payload ${root.shq(payload)}`, (result) => {
             if (result.exitCode === 0) {
                 root.logMessage("INFO", "Profile '" + profileId + "' saved successfully to disk");
+                if (onSaved && typeof onSaved === "function") {
+                    onSaved();
+                }
             } else {
                 root.logMessage("ERROR", "Failed to save profile '" + profileId + "': " + (result.stderr || result.stdout));
             }
