@@ -9,6 +9,7 @@ ColumnLayout {
     spacing: Kirigami.Units.smallSpacing
 
     property var slotsModel: null
+    property string bootWallpaperPath: ""
 
     signal addImagesRequested()
     signal addBlankSlotRequested()
@@ -21,10 +22,16 @@ ColumnLayout {
     signal moveLeftRequested(int idx)
     signal moveRightRequested(int idx)
     signal removeRequested(int idx)
+    signal setAsBootWallpaperRequested(int idx, string imagePath)
 
     function i18nText(text) {
         return (typeof i18nd !== "undefined") ? i18nd("plasma_wallpaper_org.kde.plasma.9to5", text)
              : (typeof i18n !== "undefined") ? i18n(text) : text;
+    }
+
+    function normalizePath(p) {
+        if (!p) return "";
+        return String(p).replace(/^file:\/\//, "").replace(/\/+$/, "");
     }
 
     QQC2.Label {
@@ -68,7 +75,7 @@ ColumnLayout {
                 { text: trackRoot.i18nText("2-Stage (Day / Night)"), value: "2stage" },
                 { text: trackRoot.i18nText("4-Stage (Dawn / Noon / Dusk / Night)"), value: "4stage" },
                 { text: trackRoot.i18nText("8-Stage (3-hour intervals)"), value: "8stage" },
-                { text: trackRoot.i18nText("16-Stage (Hourly cycle)"), value: "16stage" }
+                { text: trackRoot.i18nText("16-Stage (90-minute intervals)"), value: "16stage" }
             ]
             textRole: "text"
             valueRole: "value"
@@ -107,6 +114,7 @@ ColumnLayout {
             label: model.label || ""
             imagePath: model.imagePath || ""
             thumbPath: model.thumbPath || ""
+            isBootWallpaper: (trackRoot.bootWallpaperPath.length > 0 && Boolean(model.imagePath) && trackRoot.normalizePath(trackRoot.bootWallpaperPath) === trackRoot.normalizePath(model.imagePath))
 
             onSlotTimeEdited: (idx, newTime) => trackRoot.slotTimeEdited(idx, newTime)
             onSlotLabelEdited: (idx, newLabel) => trackRoot.slotLabelEdited(idx, newLabel)
@@ -115,6 +123,7 @@ ColumnLayout {
             onMoveLeftRequested: (idx) => trackRoot.moveLeftRequested(idx)
             onMoveRightRequested: (idx) => trackRoot.moveRightRequested(idx)
             onRemoveRequested: (idx) => trackRoot.removeRequested(idx)
+            onSetAsBootWallpaperRequested: (idx, img) => trackRoot.setAsBootWallpaperRequested(idx, img)
         }
 
         footer: Item {

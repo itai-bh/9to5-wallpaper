@@ -65,23 +65,122 @@ ColumnLayout {
         }
     }
 
+    function shq(s) {
+        return "'" + String(s).replace(/'/g, "'\\''") + "'";
+    }
+
     function logMessage(level, msg) {
         console.log("[9to5-wallpaper] [" + level + "] " + msg);
-        commandRunner.exec(`python3 "${root.helperScript}" log --level "${level}" --message "${msg.replace(/"/g, '\\"')}"`);
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} log --level ${root.shq(level)} --message ${root.shq(msg)}`);
+    }
+
+    function buildSyncLockscreenCommand(snapshot) {
+        var s = snapshot || {
+            profileId: profileManager.currentProfileId || root.cfg_ActiveProfile,
+            fillMode: root.cfg_FillMode,
+            transitions: root.cfg_EnableTransitions ? "true" : "false",
+            duration: root.cfg_TransitionDuration,
+            fallbackColor: root.cfg_FallbackColor ? root.cfg_FallbackColor.toString() : "#1e1e2e",
+            revision: root.cfg_ProfileRevision
+        };
+        return `python3 ${root.shq(root.helperScript)} sync-lockscreen --profile ${root.shq(s.profileId)} --fill-mode ${root.shq(s.fillMode)} --transitions ${root.shq(s.transitions)} --duration ${root.shq(s.duration)} --fallback-color ${root.shq(s.fallbackColor)} --revision ${root.shq(s.revision)}`;
     }
 
     function saveConfig() {
-        root.logMessage("INFO", "saveConfig() invoked by Plasma System Settings. Committing profile: " + root.cfg_ActiveProfile);
-        root.saveActiveProfile(false);
+        var snapshot = {
+            profileId: profileManager.currentProfileId || root.cfg_ActiveProfile,
+            fillMode: root.cfg_FillMode,
+            transitions: root.cfg_EnableTransitions ? "true" : "false",
+            duration: root.cfg_TransitionDuration,
+            fallbackColor: root.cfg_FallbackColor ? root.cfg_FallbackColor.toString() : "#1e1e2e",
+            revision: root.cfg_ProfileRevision
+        };
+        root.logMessage("INFO", "saveConfig() invoked by Plasma System Settings. Committing profile: " + snapshot.profileId);
+        root.saveActiveProfile(false, null, snapshot);
+    }
+
+    function syncLockscreen(snapshot) {
+        var cmd = root.buildSyncLockscreenCommand(snapshot);
+        commandRunner.exec(cmd, (res) => {
+            if (res.exitCode === 0) {
+                root.logMessage("INFO", "Lock screen configuration synchronized successfully");
+            } else {
+                root.logMessage("WARN", "Lock screen sync reported non-zero exit: " + (res.stderr || res.stdout));
+            }
+        });
+    }
+
+    function refreshBootWallpaper() {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} get-boot-wallpaper --user-marker ${root.shq(root.bootMarkerFile)}`, (res) => {
+            if (res.exitCode === 0 && res.stdout.trim().length > 0) {
+                try {
+                    var resp = JSON.parse(res.stdout);
+                    if (resp.status === "success" && resp.data && resp.data.imagePath) {
+                        root.currentBootWallpaperPath = resp.data.imagePath.replace("file://", "");
+                        root.logMessage("INFO", "Current boot wallpaper recognized: " + root.currentBootWallpaperPath);
+                    } else {
+                        root.currentBootWallpaperPath = "";
+                    }
+                } catch (e) {
+                    console.warn("[9to5-wallpaper] Failed to parse boot wallpaper output:", e);
+                }
+            }
+        });
+    }
+
+    function setBootWallpaper(imagePath) {
+        if (!imagePath) {
+            root.logMessage("WARN", "No image assigned to slot, cannot set as boot wallpaper");
+            return;
+        }
+        var cleanImg = imagePath.replace("file://", "");
+        root.logMessage("INFO", "Requesting root permission to apply boot wallpaper: " + cleanImg);
+        var cmd = `pkexec python3 ${root.shq(root.helperScript)} set-boot-wallpaper ${root.shq(cleanImg)} --user-marker ${root.shq(root.bootMarkerFile)}`;
+        commandRunner.exec(cmd, (res) => {
+            if (res.exitCode === 0) {
+                root.currentBootWallpaperPath = cleanImg;
+                root.logMessage("INFO", "Boot wallpaper successfully applied to login manager!");
+            } else {
+                root.logMessage("WARN", "Set boot wallpaper canceled or failed (code=" + res.exitCode + "): " + (res.stderr || res.stdout));
+            }
+        });
+    }
+
+    function removeBootWallpaper() {
+        root.logMessage("INFO", "Requesting root permission to remove boot wallpaper");
+        var cmd = `pkexec python3 ${root.shq(root.helperScript)} remove-boot-wallpaper --user-marker ${root.shq(root.bootMarkerFile)}`;
+        commandRunner.exec(cmd, (res) => {
+            if (res.exitCode === 0) {
+                root.currentBootWallpaperPath = "";
+                root.logMessage("INFO", "Boot wallpaper successfully removed from login manager!");
+            } else {
+                root.logMessage("WARN", "Remove boot wallpaper canceled or failed (code=" + res.exitCode + "): " + (res.stderr || res.stdout));
+            }
+        });
+    }
+
+    function toggleBootWallpaper(imagePath) {
+        if (!imagePath) {
+            root.logMessage("WARN", "No image assigned to slot, cannot set as boot wallpaper");
+            return;
+        }
+        var cleanImg = imagePath.replace("file://", "");
+        if (root.currentBootWallpaperPath === cleanImg) {
+            root.removeBootWallpaper();
+        } else {
+            root.setBootWallpaper(cleanImg);
+        }
     }
 
     // Internal path helpers
-    readonly property string profilesDir: StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/9to5-wallpaper/profiles"
+    readonly property string profilesDir: (StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/9to5-wallpaper/profiles").replace("file://", "")
     readonly property string helperScript: Qt.resolvedUrl("../scripts/helper.py").toString().replace("file://", "")
+    readonly property string bootMarkerFile: (StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/9to5-wallpaper/boot_wallpaper_marker.txt").replace("file://", "")
 
     // Internal Models and State
     property var activeProfileData: null
     property bool isRefreshing: false
+    property string currentBootWallpaperPath: ""
 
     ListModel {
         id: profilesListModel
@@ -162,6 +261,7 @@ ColumnLayout {
     TimelineTrackSection {
         id: timelineTrack
         slotsModel: slotsListModel
+        bootWallpaperPath: root.currentBootWallpaperPath
 
         onAddImagesRequested: dialogs.openBulkImagesDialog()
         onAddBlankSlotRequested: root.addTimeSlot("12:00", "")
@@ -187,6 +287,7 @@ ColumnLayout {
             slotsListModel.remove(idx);
             root.saveActiveProfile(true);
         }
+        onSetAsBootWallpaperRequested: (idx, img) => root.toggleBootWallpaper(img)
     }
 
     Kirigami.Separator {
@@ -235,7 +336,7 @@ ColumnLayout {
 
     function refreshProfilesList(selectProfileId) {
         root.isRefreshing = true;
-        commandRunner.exec(`python3 "${root.helperScript}" list-profiles`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} list-profiles`, (result) => {
             try {
                 var resp = JSON.parse(result.stdout);
                 if (resp.status === "success") {
@@ -271,7 +372,7 @@ ColumnLayout {
     }
 
     function loadActiveProfile(profileId) {
-        commandRunner.exec(`python3 "${root.helperScript}" get-profile "${profileId}"`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} get-profile ${root.shq(profileId)}`, (result) => {
             if (result.exitCode === 0 && result.stdout.trim().length > 0) {
                 try {
                     var resp = JSON.parse(result.stdout);
@@ -296,12 +397,12 @@ ColumnLayout {
         });
     }
 
-    function saveActiveProfile(bumpRevision) {
+    function saveActiveProfile(bumpRevision, onSaved, syncSnapshot) {
         if (bumpRevision === undefined) {
             bumpRevision = true;
         }
 
-        var profileId = profileManager.currentProfileId || root.cfg_ActiveProfile;
+        var profileId = (syncSnapshot && syncSnapshot.profileId) ? syncSnapshot.profileId : (profileManager.currentProfileId || root.cfg_ActiveProfile);
         if (!profileId) return;
 
         var slots = [];
@@ -323,13 +424,20 @@ ColumnLayout {
         };
 
         var payload = JSON.stringify(profileObj);
-        if (bumpRevision) {
-            root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
-        }
         root.logMessage("INFO", "Saving active profile '" + profileId + "' with " + slots.length + " slots (bumpRevision=" + (bumpRevision ? "true" : "false") + ")");
-        commandRunner.exec(`python3 "${root.helperScript}" save-profile "${profileId}" --payload '${payload.replace(/'/g, "'\\''")}'`, (result) => {
+        var cmd = `python3 ${root.shq(root.helperScript)} save-profile ${root.shq(profileId)} --payload ${root.shq(payload)}`;
+        if (syncSnapshot) {
+            cmd += " && " + root.buildSyncLockscreenCommand(syncSnapshot);
+        }
+        commandRunner.exec(cmd, (result) => {
             if (result.exitCode === 0) {
+                if (bumpRevision) {
+                    root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
+                }
                 root.logMessage("INFO", "Profile '" + profileId + "' saved successfully to disk");
+                if (onSaved && typeof onSaved === "function") {
+                    onSaved(syncSnapshot);
+                }
             } else {
                 root.logMessage("ERROR", "Failed to save profile '" + profileId + "': " + (result.stderr || result.stdout));
             }
@@ -414,7 +522,15 @@ ColumnLayout {
     }
 
     function createNewProfile(name) {
-        var newId = ProfileLogic.sanitizeProfileId(name);
+        var baseId = ProfileLogic.sanitizeProfileId(name);
+        var newId = baseId;
+        var n = 2;
+        var exists = function(id) {
+            for (var i = 0; i < profilesListModel.count; i++)
+                if (profilesListModel.get(i).id === id) return true;
+            return false;
+        };
+        while (exists(newId)) newId = baseId + "-" + (n++);
         var newObj = {
             id: newId,
             name: name,
@@ -427,7 +543,7 @@ ColumnLayout {
         };
 
         var payload = JSON.stringify(newObj);
-        commandRunner.exec(`python3 "${root.helperScript}" save-profile "${newId}" --payload '${payload.replace(/'/g, "'\\''")}'`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} save-profile ${root.shq(newId)} --payload ${root.shq(payload)}`, (result) => {
             if (result.exitCode === 0) {
                 root.cfg_ActiveProfile = newId;
                 root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
@@ -441,7 +557,15 @@ ColumnLayout {
     function duplicateCurrentProfile() {
         if (!root.activeProfileData) return;
         var currentId = profileManager.currentProfileId || root.cfg_ActiveProfile;
-        var newId = currentId + "-copy";
+        var baseId = currentId + "-copy";
+        var newId = baseId;
+        var n = 2;
+        var exists = function(id) {
+            for (var i = 0; i < profilesListModel.count; i++)
+                if (profilesListModel.get(i).id === id) return true;
+            return false;
+        };
+        while (exists(newId)) newId = baseId + "-" + (n++);
         var newName = profileManager.currentProfileText + " (Copy)";
 
         var cloned = JSON.parse(JSON.stringify(root.activeProfileData));
@@ -449,7 +573,7 @@ ColumnLayout {
         cloned.name = newName;
 
         var payload = JSON.stringify(cloned);
-        commandRunner.exec(`python3 "${root.helperScript}" save-profile "${newId}" --payload '${payload.replace(/'/g, "'\\''")}'`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} save-profile ${root.shq(newId)} --payload ${root.shq(payload)}`, (result) => {
             if (result.exitCode === 0) {
                 root.cfg_ActiveProfile = newId;
                 root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
@@ -483,7 +607,7 @@ ColumnLayout {
             }
         }
 
-        commandRunner.exec(`python3 "${root.helperScript}" delete-profile "${currentId}"`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} delete-profile ${root.shq(currentId)}`, (result) => {
             if (result.exitCode === 0) {
                 root.cfg_ActiveProfile = nextId;
                 root.cfg_ProfileRevision = root.cfg_ProfileRevision + 1;
@@ -498,7 +622,7 @@ ColumnLayout {
         root.logMessage("INFO", "heicImportDialog starting unpack on: " + cleanPath);
         profileManager.isBusy = true;
 
-        commandRunner.exec(`python3 "${root.helperScript}" unpack-heic "${cleanPath}"`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} unpack-heic ${root.shq(cleanPath)}`, (result) => {
             profileManager.isBusy = false;
             try {
                 var resp = JSON.parse(result.stdout);
@@ -518,7 +642,7 @@ ColumnLayout {
 
     function packHeicFile(profileId, targetPath) {
         profileManager.isBusy = true;
-        commandRunner.exec(`python3 "${root.helperScript}" pack-heic --profile "${profileId}" -o "${targetPath}"`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} pack-heic --profile ${root.shq(profileId)} -o ${root.shq(targetPath)}`, (result) => {
             profileManager.isBusy = false;
             try {
                 var resp = JSON.parse(result.stdout);
@@ -535,5 +659,6 @@ ColumnLayout {
 
     Component.onCompleted: {
         root.refreshProfilesList(root.cfg_ActiveProfile || "");
+        root.refreshBootWallpaper();
     }
 }

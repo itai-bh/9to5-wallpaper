@@ -40,6 +40,7 @@ WallpaperItem {
     property var sortedSlots: []
     property var currentSlot: null
     property string currentImagePath: ""
+    property int appliedProfileRevision: -1
     property bool isInitialized: false
 
     // Base background fallback
@@ -120,7 +121,7 @@ WallpaperItem {
         var path = decodeURIComponent(rawStr);
         if (path.toLowerCase().endsWith(".heic")) {
             console.log("[9to5-wallpaper] Importing dropped HEIC dynamic wallpaper:", path);
-            commandRunner.exec(`python3 "${root.helperScript}" unpack-heic "${path}"`, (result) => {
+            commandRunner.exec(`python3 ${root.shq(root.helperScript)} unpack-heic ${root.shq(path)}`, (result) => {
                 try {
                     var resp = JSON.parse(result.stdout);
                     if (resp.status === "success" && root.cfg) {
@@ -203,6 +204,10 @@ WallpaperItem {
     // Core Logic Functions
     // -----------------------------------------------------------------------
 
+    function shq(s) {
+        return "'" + String(s).replace(/'/g, "'\\''") + "'";
+    }
+
     function logMessage(level, msg) {
         if (level === "ERROR") {
             console.error("[9to5-wallpaper] [" + level + "] " + msg);
@@ -231,14 +236,42 @@ WallpaperItem {
         });
     }
 
+    function tryLoadSynchronousProfile(profileId) {
+        try {
+            var baseUrl = root.profilesDir.indexOf("file://") === 0 ? root.profilesDir : ("file://" + root.profilesDir);
+            var profileUrl = baseUrl + "/" + encodeURIComponent(profileId) + ".json";
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", profileUrl, false);
+            xhr.send();
+            if ((xhr.status === 200 || xhr.status === 0) && xhr.responseText && xhr.responseText.length > 0) {
+                var data = JSON.parse(xhr.responseText);
+                if (data && data.slots && data.slots.length > 0) {
+                    root.activeProfile = data;
+                    root.sortProfileSlots();
+                    root.updateScheduledSlot(false);
+                    root.logMessage("INFO", "Synchronous profile loaded on frame 0: " + profileId);
+                    return true;
+                }
+            }
+        } catch (e) {
+            // Non-fatal, fall back to async helper process
+        }
+        return false;
+    }
+
     function reloadProfile() {
         var profileId = root.cfgActiveProfile;
+        root.logMessage("INFO", "reloadProfile() requested for profile: " + profileId);
+
+        if (root.tryLoadSynchronousProfile(profileId)) {
+            return;
+        }
+
         root.currentSlot = null;
         root.sortedSlots = [];
         root.currentImagePath = "";
 
-        root.logMessage("INFO", "reloadProfile() requested for profile: " + profileId);
-        commandRunner.exec(`python3 "${root.helperScript}" get-profile "${profileId}"`, (result) => {
+        commandRunner.exec(`python3 ${root.shq(root.helperScript)} get-profile ${root.shq(profileId)}`, (result) => {
             if (result.exitCode === 0 && result.stdout.trim().length > 0) {
                 try {
                     var resp = JSON.parse(result.stdout);
@@ -256,7 +289,7 @@ WallpaperItem {
 
             // Fallback to bootstrap defaults
             root.logMessage("WARN", "Profile '" + profileId + "' unavailable, initializing defaults...");
-            commandRunner.exec(`python3 "${root.helperScript}" init-defaults`, (initRes) => {
+            commandRunner.exec(`python3 ${root.shq(root.helperScript)} init-defaults`, (initRes) => {
                 try {
                     var res = JSON.parse(initRes.stdout);
                     if (res.status === "success" && res.data && res.data.profile) {
@@ -322,17 +355,21 @@ WallpaperItem {
         // 3. Apply active image
         root.currentSlot = selectedSlot;
         var targetSource = selectedSlot.imagePath ? ("file://" + selectedSlot.imagePath) : "";
+        var revisionChanged = (root.appliedProfileRevision !== root.cfgProfileRevision);
+        root.appliedProfileRevision = root.cfgProfileRevision;
 
         if (!root.isInitialized || !animate || !root.cfgEnableTransitions || root.cfgTransitionDuration <= 0) {
             root.isInitialized = true;
-            console.log("[9to5-wallpaper] Displaying image immediately (no animation):", targetSource);
-            primaryImage.source = "";
-            primaryImage.source = targetSource;
+            if (revisionChanged || targetSource !== root.currentImagePath || primaryImage.source.toString() !== targetSource) {
+                console.log("[9to5-wallpaper] Displaying image immediately (no animation):", targetSource);
+                primaryImage.source = "";
+                primaryImage.source = targetSource;
+            }
             primaryImage.opacity = 1.0;
             secondaryImage.source = "";
             secondaryImage.opacity = 0.0;
             root.currentImagePath = targetSource;
-        } else if (targetSource !== root.currentImagePath) {
+        } else if (revisionChanged || targetSource !== root.currentImagePath) {
             console.log("[9to5-wallpaper] Crossfading to new image:", targetSource);
             secondaryImage.source = targetSource;
             opacityAnimator.restart();

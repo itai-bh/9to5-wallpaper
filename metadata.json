@@ -13,7 +13,7 @@
         "Id": "org.kde.plasma.9to5",
         "License": "GPL-3.0-or-later",
         "Name": "9to5 Wallpaper",
-        "Version": "1.0.0",
+        "Version": "1.1.0",
         "Website": ""
     },
     "X-KDE-ParentApp": "org.kde.plasmashell",
