@@ -23,9 +23,11 @@ A dynamic, time-based wallpaper plugin for **KDE Plasma 6**, providing native ma
 - **Resource & Memory Conscious:**
   - **Adaptive Delta Timer:** Computes the exact millisecond delta to the next scheduled transition and sleeps until that moment, eliminating idle CPU polling.
   - **Dual-Buffer Texture Eviction:** Holds exactly one image texture in VRAM during steady state. When crossfading, secondary textures are evicted immediately upon transition completion.
-- **Plasma Integration:**
+- **Plasma, Lock Screen & Boot Integration:**
   - Native Kirigami settings interface inside KDE's standard wallpaper settings.
   - Dynamic accent color extraction (`accentColor`) synchronized with Plasma.
+  - **Lock Screen Sync:** Synchronizes active profile, transitions, and fill mode directly to `kscreenlockerrc`.
+  - **Permanent Boot Wallpaper:** 1-click lock action on timeline slot cards to apply or toggle any slot's wallpaper directly to the login manager (Plasma Login Manager / SDDM) via `pkexec`.
 
 ---
 
@@ -93,8 +95,22 @@ cd 9to5-wallpaper
 ## AI Ethics
 The motivation for this project came from a completely personal standpoint. I just wanted a way to import, use, and make macOS style dynamic wallpapers, and there wasn't a plugin to do so that I was satisfied with. I do not know how to write qml, so I turned to AI. To be upfront, this project is completely vibecoded, i.e. I haven't touched a single line of code. Reading over this, my tone sounds apologetic, but my intention is to disclose. I know people have very valid ethical concerns with the technology, and since I'm not keeping this to myself and publishing it, people should have the right to know. I personally have projects where I'm learning development frameworks purposely without using AI so I can actually learn, but in this case I just want to have some nice looking wallpapers on my laptop.
 
-From a design and implementation standpoint, I've intentionally steered away from anything 'ai slop'. Through iteration I've made sure the UI is dynamic and actually enjoyable to use, and that there aren't gaping holes in functionality. As for performance and resource management, it's fully optimised, 
+From a design and implementation standpoint, I've intentionally steered away from anything 'ai slop'. Through iteration I've made sure the UI is dynamic and actually enjoyable to use, and that there aren't gaping holes in functionality. As for performance and resource management, it's fully optimised.
 
+---
+
+## Changelog
+
+### [v1.1.0]
+- **Permanent Boot Wallpaper:** Added a 1-click lock button to timeline slot cards allowing users to apply any slot image directly as the permanent login manager / boot wallpaper (targeting Plasma Login Manager and SDDM via `pkexec`).
+- **Click-to-Remove Toggle:** Clicking the active boot wallpaper icon removes it from the login manager configuration and restores default state.
+- **Lock Screen Synchronization:** Added automatic synchronization of active profiles, transitions, and fill mode directly to KDE's `kscreenlockerrc`.
+- **Instant Synchronous Frame Loading:** Implemented synchronous profile pre-loading for the initial desktop and lock screen frame, eliminating black flashes or delay on session startup.
+
+### [v1.0.0]
+- Initial release featuring macOS-compatible dynamic HEIC import/export, interactive timeline editor, multi-stage presets, profile manager, and adaptive delta transitions.
+
+---
 
 ## License
 

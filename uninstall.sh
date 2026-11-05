@@ -2,11 +2,10 @@
 set -euo pipefail
 
 PACKAGE_ID="org.kde.plasma.9to5"
-TARGET_DIR="${HOME}/.local/share/plasma/wallpapers/${PACKAGE_ID}"
 
-if [ -L "${TARGET_DIR}" ] || [ -d "${TARGET_DIR}" ]; then
-    rm -rf "${TARGET_DIR}"
-    echo "Removed ${TARGET_DIR}"
-else
-    echo "Package ${PACKAGE_ID} was not found in ${HOME}/.local/share/plasma/wallpapers"
-fi
+echo "Uninstalling KDE Plasma wallpaper extension: ${PACKAGE_ID}"
+
+kpackagetool6 --type Plasma/Wallpaper -r "${PACKAGE_ID}" 2>/dev/null || true
+rm -rf ~/.cache/plasma* ~/.cache/qmlcache* 2>/dev/null || true
+
+echo "Uninstalled successfully."

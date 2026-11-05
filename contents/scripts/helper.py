@@ -624,6 +624,205 @@ def cmd_save_profile(args):
     json_output("success", "save-profile", data={"id": profile_id, "file": str(profile_file)})
 
 
+
+def cmd_sync_lockscreen(args):
+    """Syncs 9to5 configuration into kscreenlockerrc for lock screen / wake-from-sleep parity."""
+    base_cmd = ["kwriteconfig6", "--file", "kscreenlockerrc"]
+    subprocess.run(base_cmd + ["--group", "Greeter", "--key", "WallpaperPlugin", "org.kde.plasma.9to5"], check=False)
+
+    grp = ["--group", "Greeter", "--group", "Wallpaper", "--group", "org.kde.plasma.9to5", "--group", "General"]
+    if args.profile:
+        subprocess.run(base_cmd + grp + ["--key", "ActiveProfile", str(args.profile)], check=False)
+    if args.fill_mode is not None:
+        subprocess.run(base_cmd + grp + ["--key", "FillMode", str(args.fill_mode)], check=False)
+    if args.transitions is not None:
+        val = "true" if str(args.transitions).lower() in ["true", "1", "yes"] else "false"
+        subprocess.run(base_cmd + grp + ["--key", "EnableTransitions", val], check=False)
+    if args.duration is not None:
+        subprocess.run(base_cmd + grp + ["--key", "TransitionDuration", str(args.duration)], check=False)
+    if args.fallback_color:
+        subprocess.run(base_cmd + grp + ["--key", "FallbackColor", str(args.fallback_color)], check=False)
+    if args.revision is not None:
+        subprocess.run(base_cmd + grp + ["--key", "ProfileRevision", str(args.revision)], check=False)
+
+    json_output("success", "sync-lockscreen", data={"synced": True})
+
+
+def cmd_get_boot_wallpaper(args):
+    """Returns the active boot wallpaper image path."""
+    res = subprocess.run([
+        "kreadconfig6",
+        "--file", "/etc/plasmalogin.conf",
+        "--group", "Greeter",
+        "--group", "Wallpaper",
+        "--group", "org.kde.image",
+        "--group", "General",
+        "--key", "Image"
+    ], capture_output=True, text=True)
+    raw = res.stdout.strip()
+
+    image_path = ""
+    if "9to5-boot" in raw:
+        # 1. System-level marker: source_path.txt created alongside boot.jpg
+        sys_marker = Path("/usr/share/wallpapers/9to5-boot/source_path.txt")
+        if sys_marker.exists():
+            try:
+                candidate = sys_marker.read_text(encoding="utf-8").strip()
+                if candidate and Path(candidate).exists():
+                    image_path = candidate
+            except Exception as e:
+                logger.warning(f"Failed to read system source marker: {e}")
+
+        # 2. User marker
+        if not image_path:
+            raw_marker = args.user_marker or str(DATA_HOME / "boot_wallpaper_marker.txt")
+            if raw_marker.startswith("file://"):
+                raw_marker = raw_marker[7:]
+            marker = Path(raw_marker)
+            if marker.exists():
+                try:
+                    candidate = marker.read_text(encoding="utf-8").strip()
+                    if candidate and Path(candidate).exists():
+                        image_path = candidate
+                except Exception:
+                    pass
+
+        # 3. Content matching recovery (recovers original slot image if marker was missing)
+        if not image_path:
+            boot_img = None
+            if raw.startswith("file://"):
+                p = Path(raw[7:])
+                if p.exists():
+                    boot_img = p
+            if boot_img is None:
+                for candidate_name in ["boot.jpg", "boot.png", "boot.jpeg"]:
+                    p = Path("/usr/share/wallpapers/9to5-boot") / candidate_name
+                    if p.exists():
+                        boot_img = p
+                        break
+            if boot_img and boot_img.exists():
+                boot_sz = boot_img.stat().st_size
+                for scan_dir in [CACHE_DIR, DATA_HOME]:
+                    if not scan_dir.exists():
+                        continue
+                    for f in scan_dir.rglob("*"):
+                        if f.is_file() and f.stat().st_size == boot_sz:
+                            try:
+                                import hashlib
+                                if hashlib.sha256(f.read_bytes()).digest() == hashlib.sha256(boot_img.read_bytes()).digest():
+                                    image_path = str(f)
+                                    # Save recovered path to user marker
+                                    try:
+                                        raw_marker = args.user_marker or str(DATA_HOME / "boot_wallpaper_marker.txt")
+                                        if raw_marker.startswith("file://"):
+                                            raw_marker = raw_marker[7:]
+                                        m_path = Path(raw_marker)
+                                        m_path.parent.mkdir(parents=True, exist_ok=True)
+                                        m_path.write_text(image_path, encoding="utf-8")
+                                    except Exception:
+                                        pass
+                                    break
+                            except Exception:
+                                pass
+                    if image_path:
+                        break
+
+    json_output("success", "get-boot-wallpaper", data={"imagePath": image_path})
+
+
+def cmd_set_boot_wallpaper(args):
+    """Copies chosen image to system wallpaper path and updates /etc/plasmalogin.conf."""
+    raw_src = args.image
+    if raw_src.startswith("file://"):
+        raw_src = raw_src[7:]
+    src = Path(raw_src).resolve()
+    if not src.exists() or not src.is_file():
+        json_output("error", "set-boot-wallpaper", error=f"Image file '{src}' does not exist")
+
+    target_dir = Path("/usr/share/wallpapers/9to5-boot")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    ext = src.suffix.lower() if src.suffix else ".jpg"
+    target_img = target_dir / f"boot{ext}"
+    shutil.copy2(str(src), str(target_img))
+    target_img.chmod(0o644)
+    target_dir.chmod(0o755)
+
+    # Write system-level source marker
+    try:
+        sys_marker = target_dir / "source_path.txt"
+        sys_marker.write_text(str(src), encoding="utf-8")
+        sys_marker.chmod(0o644)
+    except Exception as e:
+        logger.warning(f"Failed to write system source marker: {e}")
+
+    res = subprocess.run([
+        "kwriteconfig6",
+        "--file", "/etc/plasmalogin.conf",
+        "--group", "Greeter",
+        "--group", "Wallpaper",
+        "--group", "org.kde.image",
+        "--group", "General",
+        "--key", "Image",
+        f"file://{target_img}"
+    ], capture_output=True, text=True)
+
+    if args.user_marker:
+        raw_marker = args.user_marker
+        if raw_marker.startswith("file://"):
+            raw_marker = raw_marker[7:]
+        try:
+            m_path = Path(raw_marker)
+            m_path.parent.mkdir(parents=True, exist_ok=True)
+            m_path.write_text(str(src), encoding="utf-8")
+            m_path.chmod(0o666)
+        except Exception as e:
+            logger.warning(f"Failed to write user marker: {e}")
+
+    json_output("success", "set-boot-wallpaper", data={
+        "source": str(src),
+        "target": str(target_img),
+        "configUpdated": (res.returncode == 0)
+    })
+
+
+def cmd_remove_boot_wallpaper(args):
+    """Removes 9to5 boot wallpaper from /etc/plasmalogin.conf, system dir, and marker."""
+    res = subprocess.run([
+        "kwriteconfig6",
+        "--file", "/etc/plasmalogin.conf",
+        "--group", "Greeter",
+        "--group", "Wallpaper",
+        "--group", "org.kde.image",
+        "--group", "General",
+        "--key", "Image",
+        "--delete",
+        ""
+    ], capture_output=True, text=True)
+
+    target_dir = Path("/usr/share/wallpapers/9to5-boot")
+    if target_dir.exists():
+        try:
+            shutil.rmtree(str(target_dir))
+        except Exception as e:
+            logger.warning(f"Failed to remove target_dir '{target_dir}': {e}")
+
+    if args.user_marker:
+        raw_marker = args.user_marker
+        if raw_marker.startswith("file://"):
+            raw_marker = raw_marker[7:]
+        try:
+            m_path = Path(raw_marker)
+            if m_path.exists():
+                m_path.unlink()
+        except Exception as e:
+            logger.warning(f"Failed to remove user marker '{raw_marker}': {e}")
+
+    json_output("success", "remove-boot-wallpaper", data={
+        "removed": True,
+        "configUpdated": (res.returncode == 0)
+    })
+
+
 def cmd_delete_profile(args):
     """Deletes a profile and cleans its cache directory."""
     ensure_directories()
@@ -842,6 +1041,32 @@ def main():
     # self-test
     p_test = subparsers.add_parser("self-test", help="Run self-test verification suite")
     p_test.set_defaults(func=cmd_self_test)
+
+        # sync-lockscreen
+    p_sync = subparsers.add_parser("sync-lockscreen", help="Synchronize settings to kscreenlockerrc")
+    p_sync.add_argument("--profile", help="Active Profile ID")
+    p_sync.add_argument("--fill-mode", type=int, help="Image Fill Mode")
+    p_sync.add_argument("--transitions", help="Enable Transitions")
+    p_sync.add_argument("--duration", type=int, help="Transition Duration in ms")
+    p_sync.add_argument("--fallback-color", help="Fallback Background Color")
+    p_sync.add_argument("--revision", type=int, help="Profile revision")
+    p_sync.set_defaults(func=cmd_sync_lockscreen)
+
+    # get-boot-wallpaper
+    p_get_boot = subparsers.add_parser("get-boot-wallpaper", help="Get current boot wallpaper path")
+    p_get_boot.add_argument("--user-marker", help="Path to user boot wallpaper marker file")
+    p_get_boot.set_defaults(func=cmd_get_boot_wallpaper)
+
+    # set-boot-wallpaper
+    p_set_boot = subparsers.add_parser("set-boot-wallpaper", help="Set chosen image as boot wallpaper")
+    p_set_boot.add_argument("image", help="Source image path")
+    p_set_boot.add_argument("--user-marker", help="Path to user boot wallpaper marker file")
+    p_set_boot.set_defaults(func=cmd_set_boot_wallpaper)
+
+    # remove-boot-wallpaper
+    p_remove_boot = subparsers.add_parser("remove-boot-wallpaper", help="Remove boot wallpaper configuration")
+    p_remove_boot.add_argument("--user-marker", help="Path to user boot wallpaper marker file")
+    p_remove_boot.set_defaults(func=cmd_remove_boot_wallpaper)
 
     args = parser.parse_args()
     try:

@@ -12,6 +12,7 @@ Rectangle {
     property string label: ""
     property string imagePath: ""
     property string thumbPath: ""
+    property bool isBootWallpaper: false
 
     signal removeRequested(int index)
     signal moveLeftRequested(int index)
@@ -20,6 +21,7 @@ Rectangle {
     signal slotLabelEdited(int index, string newLabel)
     signal imageAssigned(int index, string newImagePath, string newThumbPath)
     signal pickImageRequested(int index)
+    signal setAsBootWallpaperRequested(int index, string imagePath)
 
     function i18nText(text) {
         return (typeof i18nd !== "undefined") ? i18nd("plasma_wallpaper_org.kde.plasma.9to5", text)
@@ -236,18 +238,56 @@ Rectangle {
             }
         }
 
-        // Slot Label
-        QQC2.TextField {
-            id: labelField
+        // Slot Label & Boot Wallpaper Lock Action
+        RowLayout {
             Layout.fillWidth: true
-            text: cardRoot.label
-            placeholderText: cardRoot.i18nText("Label (optional)")
-            horizontalAlignment: Text.AlignHCenter
-            font.pixelSize: Math.round(Kirigami.Units.gridUnit * 0.65)
+            spacing: 2
 
-            onEditingFinished: {
-                if (text !== cardRoot.label) {
-                    cardRoot.slotLabelEdited(cardRoot.slotIndex, text.trim());
+            QQC2.TextField {
+                id: labelField
+                Layout.fillWidth: true
+                text: cardRoot.label
+                placeholderText: cardRoot.i18nText("Label (optional)")
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: Math.round(Kirigami.Units.gridUnit * 0.65)
+
+                onEditingFinished: {
+                    if (text !== cardRoot.label) {
+                        cardRoot.slotLabelEdited(cardRoot.slotIndex, text.trim());
+                    }
+                }
+            }
+
+            Item {
+                Layout.preferredWidth: Kirigami.Units.iconSizes.small * 1.4
+                Layout.preferredHeight: Layout.preferredWidth
+
+                Kirigami.Icon {
+                    id: bootLockIcon
+                    anchors.centerIn: parent
+                    width: Kirigami.Units.iconSizes.small
+                    height: width
+                    source: "object-locked"
+                    fallback: "lock"
+                    isMask: true
+                    color: cardRoot.isBootWallpaper ? Kirigami.Theme.highlightColor : Kirigami.Theme.textColor
+                    opacity: !cardRoot.imagePath ? 0.3 : (bootLockMouse.pressed ? 0.5 : (bootLockMouse.containsMouse || cardRoot.isBootWallpaper ? 1.0 : 0.6))
+                }
+
+                MouseArea {
+                    id: bootLockMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: cardRoot.imagePath ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    QQC2.ToolTip.visible: containsMouse
+                    QQC2.ToolTip.text: !cardRoot.imagePath ? cardRoot.i18nText("Assign an image first to set as boot wallpaper")
+                                     : (cardRoot.isBootWallpaper ? cardRoot.i18nText("Active boot wallpaper (Click to remove)")
+                                     : cardRoot.i18nText("Set as permanent boot wallpaper"))
+                    onClicked: {
+                        if (cardRoot.imagePath) {
+                            cardRoot.setAsBootWallpaperRequested(cardRoot.slotIndex, cardRoot.imagePath);
+                        }
+                    }
                 }
             }
         }

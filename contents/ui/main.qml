@@ -231,13 +231,38 @@ WallpaperItem {
         });
     }
 
+    function tryLoadSynchronousProfile(profileId) {
+        try {
+            var profileUrl = "file://" + root.profilesDir + "/" + profileId + ".json";
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", profileUrl, false);
+            xhr.send();
+            if ((xhr.status === 200 || xhr.status === 0) && xhr.responseText && xhr.responseText.length > 0) {
+                var data = JSON.parse(xhr.responseText);
+                if (data && data.slots && data.slots.length > 0) {
+                    root.activeProfile = data;
+                    root.sortProfileSlots();
+                    root.updateScheduledSlot(false);
+                    root.logMessage("INFO", "Synchronous profile loaded on frame 0: " + profileId);
+                    return true;
+                }
+            }
+        } catch (e) {
+            // Non-fatal, fall back to async helper process
+        }
+        return false;
+    }
+
     function reloadProfile() {
         var profileId = root.cfgActiveProfile;
-        root.currentSlot = null;
-        root.sortedSlots = [];
-        root.currentImagePath = "";
-
         root.logMessage("INFO", "reloadProfile() requested for profile: " + profileId);
+
+        if (!root.tryLoadSynchronousProfile(profileId)) {
+            root.currentSlot = null;
+            root.sortedSlots = [];
+            root.currentImagePath = "";
+        }
+
         commandRunner.exec(`python3 "${root.helperScript}" get-profile "${profileId}"`, (result) => {
             if (result.exitCode === 0 && result.stdout.trim().length > 0) {
                 try {

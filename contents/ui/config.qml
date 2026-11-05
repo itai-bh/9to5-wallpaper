@@ -73,15 +73,98 @@ ColumnLayout {
     function saveConfig() {
         root.logMessage("INFO", "saveConfig() invoked by Plasma System Settings. Committing profile: " + root.cfg_ActiveProfile);
         root.saveActiveProfile(false);
+        root.syncLockscreen();
+    }
+
+    function syncLockscreen() {
+        var pId = profileManager.currentProfileId || root.cfg_ActiveProfile;
+        var fillMode = root.cfg_FillMode;
+        var transitions = root.cfg_EnableTransitions ? "true" : "false";
+        var duration = root.cfg_TransitionDuration;
+        var fallbackColor = root.cfg_FallbackColor ? root.cfg_FallbackColor.toString() : "#1e1e2e";
+        var revision = root.cfg_ProfileRevision;
+
+        var cmd = `python3 "${root.helperScript}" sync-lockscreen --profile "${pId}" --fill-mode ${fillMode} --transitions ${transitions} --duration ${duration} --fallback-color "${fallbackColor}" --revision ${revision}`;
+        commandRunner.exec(cmd, (res) => {
+            if (res.exitCode === 0) {
+                root.logMessage("INFO", "Lock screen configuration synchronized successfully");
+            } else {
+                root.logMessage("WARN", "Lock screen sync reported non-zero exit: " + (res.stderr || res.stdout));
+            }
+        });
+    }
+
+    function refreshBootWallpaper() {
+        commandRunner.exec(`python3 "${root.helperScript}" get-boot-wallpaper --user-marker "${root.bootMarkerFile}"`, (res) => {
+            if (res.exitCode === 0 && res.stdout.trim().length > 0) {
+                try {
+                    var resp = JSON.parse(res.stdout);
+                    if (resp.status === "success" && resp.data && resp.data.imagePath) {
+                        root.currentBootWallpaperPath = resp.data.imagePath.replace("file://", "");
+                        root.logMessage("INFO", "Current boot wallpaper recognized: " + root.currentBootWallpaperPath);
+                    } else {
+                        root.currentBootWallpaperPath = "";
+                    }
+                } catch (e) {
+                    console.warn("[9to5-wallpaper] Failed to parse boot wallpaper output:", e);
+                }
+            }
+        });
+    }
+
+    function setBootWallpaper(imagePath) {
+        if (!imagePath) {
+            root.logMessage("WARN", "No image assigned to slot, cannot set as boot wallpaper");
+            return;
+        }
+        var cleanImg = imagePath.replace("file://", "");
+        root.logMessage("INFO", "Requesting root permission to apply boot wallpaper: " + cleanImg);
+        var cmd = `pkexec python3 "${root.helperScript}" set-boot-wallpaper "${cleanImg}" --user-marker "${root.bootMarkerFile}"`;
+        commandRunner.exec(cmd, (res) => {
+            if (res.exitCode === 0) {
+                root.currentBootWallpaperPath = cleanImg;
+                root.logMessage("INFO", "Boot wallpaper successfully applied to login manager!");
+            } else {
+                root.logMessage("WARN", "Set boot wallpaper canceled or failed (code=" + res.exitCode + "): " + (res.stderr || res.stdout));
+            }
+        });
+    }
+
+    function removeBootWallpaper() {
+        root.logMessage("INFO", "Requesting root permission to remove boot wallpaper");
+        var cmd = `pkexec python3 "${root.helperScript}" remove-boot-wallpaper --user-marker "${root.bootMarkerFile}"`;
+        commandRunner.exec(cmd, (res) => {
+            if (res.exitCode === 0) {
+                root.currentBootWallpaperPath = "";
+                root.logMessage("INFO", "Boot wallpaper successfully removed from login manager!");
+            } else {
+                root.logMessage("WARN", "Remove boot wallpaper canceled or failed (code=" + res.exitCode + "): " + (res.stderr || res.stdout));
+            }
+        });
+    }
+
+    function toggleBootWallpaper(imagePath) {
+        if (!imagePath) {
+            root.logMessage("WARN", "No image assigned to slot, cannot set as boot wallpaper");
+            return;
+        }
+        var cleanImg = imagePath.replace("file://", "");
+        if (root.currentBootWallpaperPath === cleanImg) {
+            root.removeBootWallpaper();
+        } else {
+            root.setBootWallpaper(cleanImg);
+        }
     }
 
     // Internal path helpers
-    readonly property string profilesDir: StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/9to5-wallpaper/profiles"
+    readonly property string profilesDir: (StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/9to5-wallpaper/profiles").replace("file://", "")
     readonly property string helperScript: Qt.resolvedUrl("../scripts/helper.py").toString().replace("file://", "")
+    readonly property string bootMarkerFile: (StandardPaths.writableLocation(StandardPaths.GenericDataLocation) + "/9to5-wallpaper/boot_wallpaper_marker.txt").replace("file://", "")
 
     // Internal Models and State
     property var activeProfileData: null
     property bool isRefreshing: false
+    property string currentBootWallpaperPath: ""
 
     ListModel {
         id: profilesListModel
@@ -162,6 +245,7 @@ ColumnLayout {
     TimelineTrackSection {
         id: timelineTrack
         slotsModel: slotsListModel
+        bootWallpaperPath: root.currentBootWallpaperPath
 
         onAddImagesRequested: dialogs.openBulkImagesDialog()
         onAddBlankSlotRequested: root.addTimeSlot("12:00", "")
@@ -187,6 +271,7 @@ ColumnLayout {
             slotsListModel.remove(idx);
             root.saveActiveProfile(true);
         }
+        onSetAsBootWallpaperRequested: (idx, img) => root.toggleBootWallpaper(img)
     }
 
     Kirigami.Separator {
@@ -535,5 +620,7 @@ ColumnLayout {
 
     Component.onCompleted: {
         root.refreshProfilesList(root.cfg_ActiveProfile || "");
+        root.refreshBootWallpaper();
+        root.syncLockscreen();
     }
 }

@@ -9,6 +9,7 @@ ColumnLayout {
     spacing: Kirigami.Units.smallSpacing
 
     property var slotsModel: null
+    property string bootWallpaperPath: ""
 
     signal addImagesRequested()
     signal addBlankSlotRequested()
@@ -21,6 +22,7 @@ ColumnLayout {
     signal moveLeftRequested(int idx)
     signal moveRightRequested(int idx)
     signal removeRequested(int idx)
+    signal setAsBootWallpaperRequested(int idx, string imagePath)
 
     function i18nText(text) {
         return (typeof i18nd !== "undefined") ? i18nd("plasma_wallpaper_org.kde.plasma.9to5", text)
@@ -107,6 +109,7 @@ ColumnLayout {
             label: model.label || ""
             imagePath: model.imagePath || ""
             thumbPath: model.thumbPath || ""
+            isBootWallpaper: (trackRoot.bootWallpaperPath.length > 0 && model.imagePath && trackRoot.bootWallpaperPath === model.imagePath)
 
             onSlotTimeEdited: (idx, newTime) => trackRoot.slotTimeEdited(idx, newTime)
             onSlotLabelEdited: (idx, newLabel) => trackRoot.slotLabelEdited(idx, newLabel)
@@ -115,6 +118,7 @@ ColumnLayout {
             onMoveLeftRequested: (idx) => trackRoot.moveLeftRequested(idx)
             onMoveRightRequested: (idx) => trackRoot.moveRightRequested(idx)
             onRemoveRequested: (idx) => trackRoot.removeRequested(idx)
+            onSetAsBootWallpaperRequested: (idx, img) => trackRoot.setAsBootWallpaperRequested(idx, img)
         }
 
         footer: Item {
